@@ -119,6 +119,23 @@ public class PitchoutGame extends Game {
         }
     }
 
+    public static ChatColor getColorForLives(int lives) {
+        switch (lives) {
+            case 5:
+                return ChatColor.AQUA;
+            case 4:
+                return ChatColor.GREEN;
+            case 3:
+                return ChatColor.YELLOW;
+            case 2:
+                return ChatColor.GOLD; // Orange
+            case 1:
+                return ChatColor.RED;
+            default:
+                return ChatColor.GRAY; // For spectators or unexpected values
+        }
+    }
+
     private void updateGameInfo() {
         String gameState;
         String countdownInfo = "";
@@ -150,7 +167,10 @@ public class PitchoutGame extends Game {
             int line = 11;
             for (CookiePlayer p : getPlayers()) {
                 if (!isSpectator || p != player) {
-                    scoreboardManager.updateScore(bukkitPlayer, p.getPlayer().getName() + ": " + playerLives.get(p), line--);
+                    int lives = playerLives.get(p);
+                    ChatColor color = getColorForLives(lives);
+                    String playerInfo = color + p.getPlayer().getName() + ChatColor.RESET + ": " + lives;
+                    scoreboardManager.updateScore(bukkitPlayer, playerInfo, line--);
                 }
             }
         }
@@ -232,15 +252,7 @@ public class PitchoutGame extends Game {
     }
 
     public void handlePlayerFall(CookiePlayer player) {
-        int lives = getPlayerLives(player);
-        if (lives > 1) {
-            lives--;
-            setPlayerLives(player, lives);
-            player.getPlayer().sendMessage(LocaleManager.getMessage("game.lost_life", player.getPlayer().locale(), String.valueOf(lives)));
-            respawnPlayer(player);
-        } else {
-            eliminatePlayer(player);
-        }
+        // TODO: use this function to handle fall
     }
 
     private void respawnPlayer(CookiePlayer player) {

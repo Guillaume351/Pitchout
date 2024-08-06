@@ -106,6 +106,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
                     lastHitter.sendMessage("§aYou knocked " + player.getName() + " off the platform!");
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
                 }
+                player.setDisplayName(PitchoutGame.getColorForLives(lives) + " " + player.getName());
             } else {
                 pitchoutGame.eliminatePlayer(cookiePlayer);
                 player.sendMessage("§cYou have been eliminated from the game!");
