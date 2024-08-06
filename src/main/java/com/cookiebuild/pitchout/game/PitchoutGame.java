@@ -47,12 +47,14 @@ public class PitchoutGame extends Game {
     }
 
     @Override
-    public void addPlayer(CookiePlayer player) {
-        if (!getPlayers().contains(player)) {
-            super.addPlayer(player);
+    public boolean addPlayer(CookiePlayer player) {
+        if (super.addPlayer(player)) {
             playerLives.put(player, MAX_LIVES);
             teleportToGame(player);
+        } else {
+            return false;
         }
+        return true;
     }
 
     @Override
