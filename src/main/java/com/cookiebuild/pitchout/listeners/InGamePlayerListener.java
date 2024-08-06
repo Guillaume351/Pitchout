@@ -9,6 +9,7 @@ import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.pitchout.game.PitchoutGame;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -84,7 +85,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
             return;
         }
 
-        if (player.getLocation().getY() < 0) { // Adjust this value based on your map
+        if (player.getLocation().getY() < 50) { // Adjust this value based on your map
             handlePlayerFall(player);
         }
     }
@@ -112,11 +113,17 @@ public class InGamePlayerListener extends BaseEventBlocker {
                     lastHitter.sendMessage("§aYou eliminated " + player.getName() + " from the game!");
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 2);
                 }
+                // firework sound
+                player.getWorld().playSound(player.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1, 1);
             }
 
             // Respawn the player
             Location spawnLocation = pitchoutGame.getRandomSpawnLocation();
             player.teleport(spawnLocation);
+            // Add Green (villager) particles on respawn
+            player.getWorld().spawnParticle(Particle.HAPPY_VILLAGER, spawnLocation, 100, 0.1, 0.1, 0.1, 0);
+
+
             player.setFallDistance(0);
         }
     }
