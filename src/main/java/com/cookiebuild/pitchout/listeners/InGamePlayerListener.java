@@ -11,12 +11,16 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,6 +28,10 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
     private final Map<Player, Player> lastHitBy = new HashMap<>();
     private static final int MAX_LIVES = 5;
+
+    public InGamePlayerListener() {
+        protectedWorlds = new ArrayList<>();
+    }
 
     public void addProtectedWorld(String worldName) {
         protectedWorlds.add(worldName);
@@ -47,11 +55,11 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
     @Override
     protected boolean shouldAllowEntityDamage(EntityDamageEvent event) {
-        if (!protectedWorlds.contains(event.getEntity().getWorld().getName())) {
-            return true;
+
+        if (protectedWorlds.contains(event.getEntity().getWorld().getName())) {
+            event.setDamage(0.0);
         }
 
-        event.setDamage(0);
         if (!(event.getEntity() instanceof Player player)) {
             return true; // Allow damage to non-player entities
         }
@@ -64,9 +72,8 @@ public class InGamePlayerListener extends BaseEventBlocker {
             if (damageByEntityEvent.getDamager() instanceof Player damager) {
                 if (damager.getGameMode() != GameMode.SPECTATOR) {
                     lastHitBy.put(player, damager);
-                    player.setVelocity(player.getLocation().subtract(damager.getLocation()).toVector().normalize().setY(0.5));
                     player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1, 1);
-                    return false; // Prevent actual damage
+                    return true; // Prevent actual damage
                 }
             }
         }
@@ -76,7 +83,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
-        if (protectedWorlds.contains(event.getPlayer().getWorld().getName())) {
+        if (!protectedWorlds.contains(event.getPlayer().getWorld().getName())) {
             return;
         }
 
@@ -127,6 +134,23 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
             player.setFallDistance(0);
         }
+    }
+
+    @Override
+    protected boolean shouldAllowPlayerInteract(PlayerInteractEvent event) {
+        // only allow if game is running
+        return isPlayerInGame(event.getPlayer()) && isGameRunning(event.getPlayer());
+    }
+
+    @Override
+    protected boolean shouldAllowProjectileLaunch(ProjectileLaunchEvent event) {
+        Entity entity = event.getEntity();
+        if (!(entity instanceof Player)) {
+            return true; // Allow damage to non-player entities
+        }
+
+        // only allow if game is running
+        return isPlayerInGame((Player) entity) && isGameRunning((Player) entity);
     }
 
     // Add other necessary event handlers and methods as needed

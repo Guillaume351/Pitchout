@@ -7,7 +7,6 @@ import com.cookiebuild.pitchout.Pitchout;
 import com.cookiebuild.pitchout.game.PitchoutGame;
 import com.cookiebuild.pitchout.listeners.InGamePlayerListener;
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
 import org.bukkit.configuration.ConfigurationSection;
@@ -21,6 +20,7 @@ public class MapManager {
     public static InGamePlayerListener inGamePlayerListener;
     private static final Map<String, MapTemplate> mapTemplates = new HashMap<>();
     private static final Map<String, GameMap> loadedMaps = new HashMap<>();
+
 
     public static void loadMapTemplates() {
         Pitchout.getInstance().getLogger().info("Loading map templates...");
@@ -49,8 +49,7 @@ public class MapManager {
 
         List<List<Double>> spawnCoordinates = new ArrayList<>();
         for (Object rawCoord : rawSpawnCoordinates) {
-            if (rawCoord instanceof List<?>) {
-                List<?> coordList = (List<?>) rawCoord;
+            if (rawCoord instanceof List<?> coordList) {
                 List<Double> doubleCoordList = new ArrayList<>();
                 for (Object coord : coordList) {
                     if (coord instanceof Number) {

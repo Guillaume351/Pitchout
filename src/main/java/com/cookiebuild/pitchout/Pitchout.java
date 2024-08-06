@@ -32,9 +32,10 @@ public final class Pitchout extends JavaPlugin {
         saveResource("config.yml", false);
 
         MapManager.loadMapTemplates();
+        MapManager.inGamePlayerListener = new InGamePlayerListener();
         registerNewGame();
 
-        Bukkit.getPluginManager().registerEvents(new InGamePlayerListener(), this);
+        Bukkit.getPluginManager().registerEvents(MapManager.inGamePlayerListener, this);
     }
 
     @Override
