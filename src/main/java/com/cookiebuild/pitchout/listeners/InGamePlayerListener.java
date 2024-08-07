@@ -73,12 +73,12 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 if (damager.getGameMode() != GameMode.SPECTATOR) {
                     lastHitBy.put(player, damager);
                     player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1, 1);
-                    return true; // Prevent actual damage
+
                 }
             }
         }
 
-        return false; // Prevent any other type of damage
+        return true; // Prevent any other type of damage
     }
 
     @EventHandler
