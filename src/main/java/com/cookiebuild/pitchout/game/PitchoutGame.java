@@ -84,8 +84,9 @@ public class PitchoutGame extends Game {
         // give 64 arrows
         ItemStack arrow = new ItemStack(Material.ARROW, 64);
 
-        player.getPlayer().getInventory().addItem(shovel);
+
         player.getPlayer().getInventory().addItem(bow);
+        player.getPlayer().getInventory().addItem(shovel);
         player.getPlayer().getInventory().addItem(arrow);
         spawnLocation.setWorld(gameWorld);
         player.getPlayer().teleport(spawnLocation);
