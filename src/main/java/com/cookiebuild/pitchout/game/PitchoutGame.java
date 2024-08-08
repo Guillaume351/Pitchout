@@ -10,6 +10,7 @@ import com.cookiebuild.cookiedough.utils.LocaleManager;
 import com.cookiebuild.pitchout.Pitchout;
 import com.cookiebuild.pitchout.map.GameMap;
 import com.cookiebuild.pitchout.map.MapManager;
+import com.cookiebuild.pitchout.map.MapTemplate;
 import org.bukkit.*;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
@@ -260,5 +261,9 @@ public class PitchoutGame extends Game {
         Location spawnLocation = getRandomSpawnLocation();
         player.getPlayer().teleport(spawnLocation);
         player.getPlayer().setFallDistance(0);
+    }
+
+    public MapTemplate getTemplate() {
+        return map.getTemplate();
     }
 }

@@ -53,6 +53,11 @@ public class InGamePlayerListener extends BaseEventBlocker {
         return game != null && game.hasStarted();
     }
 
+    private PitchoutGame getPlayersGame(Player player) {
+        PitchoutGame game = (PitchoutGame) GameManager.getGameOfPlayer(PlayerManager.getPlayer(player));
+        return game;
+    }
+
     @Override
     protected boolean shouldAllowEntityDamage(EntityDamageEvent event) {
 
@@ -88,11 +93,16 @@ public class InGamePlayerListener extends BaseEventBlocker {
         }
 
         Player player = event.getPlayer();
-        if (!isPlayerInGame(player) || !isGameRunning(player)) {
+        if (!isPlayerInGame(player)) {
+
             return;
+        } else if (!isGameRunning(player)) {
+            if (player.getLocation().getY() < getPlayersGame(player).getTemplate().getWaitingAreaMinY()) {
+                player.teleport(getPlayersGame(player).getTemplate().getSpawnLocation(player.getWorld()));
+            }
         }
 
-        if (player.getLocation().getY() < 50) { // Adjust this value based on your map
+        if (player.getLocation().getY() < getPlayersGame(player).getTemplate().getKillY()) { // Adjust this value based on your map
             handlePlayerFall(player);
         }
     }
