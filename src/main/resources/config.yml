@@ -1,6 +1,7 @@
 maps:
   pitchout1:
     waiting-spawn: [ 6.5, 97, 9.5, 0 ]
+    knockback-strength: 5
     spawns:
       - [ -20.5, 64, 9.5, 0 ]
       - [ -12.5, 64, -9.5, 0 ]
@@ -11,7 +12,8 @@ maps:
       - [ 6.5, 64, 36.5, 0 ]
       - [ -12.5, 64, 28.5, 0 ]
   pitchout2:
-    waiting-spawn: [ -1.5, 30, -2.5, 90 ]
+    waiting-spawn: [ -1.5, 30, -2.5, 0 ]
+    knockback-strength: 10
     spawns:
       - [ -71.5, 23, -2.5, -90 ]
       - [ -53.5, 23, -2.5, -90 ]

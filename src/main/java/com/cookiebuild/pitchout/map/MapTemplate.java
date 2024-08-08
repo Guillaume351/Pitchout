@@ -10,12 +10,14 @@ public class MapTemplate {
     private final String name;
     private final List<Double> waitingSpawn;
     private final List<List<Double>> spawnCoordinates;
+    private final int knockbackStrength;
 
 
-    public MapTemplate(String name, List<List<Double>> spawnCoordinates, List<Double> waitingSpawn) {
+    public MapTemplate(String name, List<List<Double>> spawnCoordinates, List<Double> waitingSpawn, int knockbackStrength) {
         this.name = name;
         this.spawnCoordinates = spawnCoordinates;
         this.waitingSpawn = waitingSpawn;
+        this.knockbackStrength = knockbackStrength;
     }
 
     public String getName() {
@@ -48,5 +50,9 @@ public class MapTemplate {
     public int getWaitingAreaMinY() {
         // waitingAreaMinY is the Y coordinates of waitingSpawn minus 4 blocks (to avoid going to the map before the game starts)
         return (int) (waitingSpawn.get(1) - 4);
+    }
+
+    public int getKnockbackStrength() {
+        return knockbackStrength;
     }
 }

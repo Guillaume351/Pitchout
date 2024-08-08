@@ -77,14 +77,14 @@ public class PitchoutGame extends Game {
 
         // give knockback 10 shovels
         ItemStack shovel = new ItemStack(Material.WOODEN_SHOVEL);
-        shovel.addUnsafeEnchantment(Enchantment.KNOCKBACK, 5);
+        shovel.addUnsafeEnchantment(Enchantment.KNOCKBACK, map.getTemplate().getKnockbackStrength());
 
         ItemStack bow = new ItemStack(Material.BOW);
-        bow.addUnsafeEnchantment(Enchantment.PUNCH, 5);
+        bow.addEnchantment(Enchantment.INFINITY, 1);
+        bow.addUnsafeEnchantment(Enchantment.PUNCH, map.getTemplate().getKnockbackStrength());
 
-        // give 64 arrows
-        ItemStack arrow = new ItemStack(Material.ARROW, 64);
-
+        // give 1 arrows (hide in inventory)
+        ItemStack arrow = new ItemStack(Material.ARROW, 1);
 
         player.getPlayer().getInventory().addItem(bow);
         player.getPlayer().getInventory().addItem(shovel);
@@ -217,7 +217,6 @@ public class PitchoutGame extends Game {
                         LobbyManager.teleportPlayerToLobby(player);
                     }
                     GameManager.removeGame(PitchoutGame.this);
-                    Bukkit.getScheduler().cancelTasks(Pitchout.getInstance());
                 }
             }
         }, 0L, 20L); // Run every second

@@ -82,7 +82,9 @@ public class MapManager {
             }
         }
 
-        return new MapTemplate(mapName, spawnCoordinates, waitingSpawn);
+        int knockbackStrength = Pitchout.getInstance().getConfig().getInt("maps." + mapName + ".knockback-strength");
+
+        return new MapTemplate(mapName, spawnCoordinates, waitingSpawn, knockbackStrength);
     }
 
     public static GameMap loadMapForGame(PitchoutGame game, String mapName) throws IOException {
