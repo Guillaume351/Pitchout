@@ -5,6 +5,7 @@ import com.cookiebuild.cookiedough.game.GameManager;
 import com.cookiebuild.cookiedough.game.GameState;
 import com.cookiebuild.cookiedough.lobby.LobbyManager;
 import com.cookiebuild.cookiedough.player.CookiePlayer;
+import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.cookiedough.ui.CustomScoreboardManager;
 import com.cookiebuild.cookiedough.utils.LocaleManager;
 import com.cookiebuild.pitchout.Pitchout;
@@ -245,6 +246,7 @@ public class PitchoutGame extends Game {
         player.getPlayer().setGameMode(GameMode.SPECTATOR);
         player.getPlayer().sendMessage(LocaleManager.getMessage("game.player_eliminated", player.getPlayer().locale()));
         player.getPlayer().sendTitle(LocaleManager.getMessage("game.now_spectating", player.getPlayer().locale()), null, 20, 40, 20);
+        player.setState(PlayerState.SPECTATING);
         checkForWinner();
     }
 
