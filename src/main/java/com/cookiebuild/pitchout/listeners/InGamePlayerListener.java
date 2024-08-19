@@ -122,6 +122,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 if (lastHitter != null) {
                     lastHitter.sendMessage("§aYou knocked " + player.getName() + " off the platform!");
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
+                    // remove last hitter
                 }
                 player.setDisplayName(PitchoutGame.getColorForLives(lives) + " " + player.getName());
             } else {
@@ -134,6 +135,9 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 // firework sound
                 player.getWorld().playSound(player.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1, 1);
             }
+
+            // Reset last hitter
+            lastHitBy.put(player, null);
 
             // Respawn the player
             Location spawnLocation = pitchoutGame.getRandomSpawnLocation();
