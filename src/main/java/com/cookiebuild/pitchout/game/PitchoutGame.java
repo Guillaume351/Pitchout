@@ -217,6 +217,10 @@ public class PitchoutGame extends Game {
                     for (CookiePlayer player : getPlayers()) {
                         LobbyManager.teleportPlayerToLobby(player);
                     }
+                    // remove all players from the game
+                    for (CookiePlayer player : getPlayers()) {
+                        removePlayer(player);
+                    }
                     GameManager.removeGame(PitchoutGame.this);
                 }
             }

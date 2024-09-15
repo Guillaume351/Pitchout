@@ -43,13 +43,13 @@ public class MapTemplate {
     }
 
     public int getKillY() {
-        // killY is the Y coordinates of randomSpawns minus 4 blocks
+        // killY is the Y coordinates of randomSpawns minus 2 blocks
         return (int) (spawnCoordinates.getFirst().get(1) - 2);
     }
 
     public int getWaitingAreaMinY() {
-        // waitingAreaMinY is the Y coordinates of waitingSpawn minus 4 blocks (to avoid going to the map before the game starts)
-        return (int) (waitingSpawn.get(1) - 4);
+        // waitingAreaMinY is the Y coordinates of waitingSpawn minus 3 blocks (to avoid going to the map before the game starts)
+        return (int) (waitingSpawn.get(1) - 3);
     }
 
     public int getKnockbackStrength() {
