@@ -15,9 +15,6 @@ public class PitchoutStats extends GameStats {
     private int knockbacks;
 
     @Column(nullable = false)
-    private int fallsWithoutDamage;
-
-    @Column(nullable = false)
     private int consecutiveKnockbacks;
 
     @Column(nullable = false)
@@ -31,7 +28,6 @@ public class PitchoutStats extends GameStats {
         super();
         this.setGameType("Pitchout");
         this.knockbacks = 0;
-        this.fallsWithoutDamage = 0;
         this.consecutiveKnockbacks = 0;
         this.maxConsecutiveKnockbacks = 0;
         this.totalJumps = 0;
@@ -40,7 +36,6 @@ public class PitchoutStats extends GameStats {
     public PitchoutStats(PlayerData player) {
         super(player, "Pitchout");
         this.knockbacks = 0;
-        this.fallsWithoutDamage = 0;
         this.consecutiveKnockbacks = 0;
         this.maxConsecutiveKnockbacks = 0;
         this.totalJumps = 0;
@@ -53,14 +48,6 @@ public class PitchoutStats extends GameStats {
 
     public void setKnockbacks(int knockbacks) {
         this.knockbacks = knockbacks;
-    }
-
-    public int getFallsWithoutDamage() {
-        return fallsWithoutDamage;
-    }
-
-    public void setFallsWithoutDamage(int fallsWithoutDamage) {
-        this.fallsWithoutDamage = fallsWithoutDamage;
     }
 
     public int getConsecutiveKnockbacks() {
@@ -103,20 +90,12 @@ public class PitchoutStats extends GameStats {
         this.consecutiveKnockbacks = 0;
     }
 
-    public void incrementFallsWithoutDamage() {
-        this.fallsWithoutDamage++;
-    }
-
     public void incrementTotalJumps() {
         this.totalJumps++;
     }
 
     public void addKnockbacks(int count) {
         this.knockbacks += count;
-    }
-
-    public void addFallsWithoutDamage(int count) {
-        this.fallsWithoutDamage += count;
     }
 
     public void addTotalJumps(int count) {
@@ -129,5 +108,14 @@ public class PitchoutStats extends GameStats {
             return 0;
         }
         return (double) knockbacks / getGamesPlayed();
+    }
+
+    @Override
+    public java.util.Map<String, String> getFormattedSpecificStats() {
+        java.util.Map<String, String> specificStats = new java.util.LinkedHashMap<>();
+        specificStats.put("Players Elim.", String.valueOf(this.getTotalKills()));
+        specificStats.put("Total Knockbacks", String.valueOf(this.getKnockbacks()));
+        specificStats.put("Max Combo", String.valueOf(this.getMaxConsecutiveKnockbacks()));
+        return specificStats;
     }
 }
