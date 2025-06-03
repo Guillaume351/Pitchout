@@ -57,7 +57,8 @@ public class PitchoutGame extends Game {
     private final Map<UUID, PlayerMatchPerformance> matchPerformances = new HashMap<>();
     private final HashMap<UUID, Integer> playerEliminationsThisMatch = new HashMap<>(); // Kills by this player
     private final HashMap<UUID, Integer> playerDeathsThisMatch = new HashMap<>(); // Times this player was eliminated
-    private final HashMap<UUID, Integer> playerKnockbacksThisMatch = new HashMap<>();
+    private final HashMap<UUID, Integer> playerKnockbacksGivenThisMatch = new HashMap<>();
+    private final HashMap<UUID, Integer> playerKnockbacksReceivedThisMatch = new HashMap<>();
     private final HashMap<UUID, Integer> playerCurrentCombo = new HashMap<>();
     private final HashMap<UUID, Integer> playerMaxComboThisMatch = new HashMap<>();
     private final HashMap<UUID, Integer> playerSelfFallsThisMatch = new HashMap<>();
@@ -195,6 +196,13 @@ public class PitchoutGame extends Game {
         for (UUID playerId : participantPlayerData.keySet()) {
             PlayerData playerData = participantPlayerData.get(playerId);
             PlayerMatchPerformance perf = new PlayerMatchPerformance(currentMatchInstance, playerData);
+            // Initialize game-specific metrics with empty values
+            JsonObject metrics = new JsonObject();
+            metrics.addProperty("eliminations", 0);
+            metrics.addProperty("knockbacks", 0);
+            metrics.addProperty("maxCombo", 0);
+            metrics.addProperty("selfFalls", 0);
+            perf.setGameSpecificMetrics(metrics.toString());
             matchPerformances.put(playerId, perf);
             currentMatchInstance.addPerformance(perf);
         }
@@ -305,7 +313,10 @@ public class PitchoutGame extends Game {
                     // Create JSON object for Pitchout-specific metrics
                     JsonObject metrics = new JsonObject();
                     metrics.addProperty("eliminations", playerEliminationsThisMatch.getOrDefault(playerId, 0));
-                    metrics.addProperty("knockbacks", playerKnockbacksThisMatch.getOrDefault(playerId, 0));
+                    metrics.addProperty("knockbacksGiven",
+                            playerKnockbacksGivenThisMatch.getOrDefault(playerId, 0));
+                    metrics.addProperty("knockbacksReceived",
+                            playerKnockbacksReceivedThisMatch.getOrDefault(playerId, 0));
                     metrics.addProperty("maxCombo", playerMaxComboThisMatch.getOrDefault(playerId, 0));
                     metrics.addProperty("selfFalls", playerSelfFallsThisMatch.getOrDefault(playerId, 0));
 
@@ -421,8 +432,10 @@ public class PitchoutGame extends Game {
             int elims = playerEliminationsThisMatch.getOrDefault(attackerId, 0) + 1;
             playerEliminationsThisMatch.put(attackerId, elims);
 
-            int knockbacks = playerKnockbacksThisMatch.getOrDefault(attackerId, 0) + 1;
-            playerKnockbacksThisMatch.put(attackerId, knockbacks);
+            int knockbacks = playerKnockbacksGivenThisMatch.getOrDefault(attackerId, 0) + 1;
+            playerKnockbacksGivenThisMatch.put(attackerId, knockbacks);
+            int knockbacksReceived = playerKnockbacksReceivedThisMatch.getOrDefault(victimId, 0) + 1;
+            playerKnockbacksReceivedThisMatch.put(victimId, knockbacksReceived);
 
             // Update combo
             int currentCombo = playerCurrentCombo.getOrDefault(attackerId, 0) + 1;
@@ -453,38 +466,8 @@ public class PitchoutGame extends Game {
         checkForWinner();
     }
 
-    // Overload for self-elimination / environmental death
-    public void eliminatePlayer(CookiePlayer victim) {
-        eliminatePlayer(victim, null);
-    }
-
     public Location getRandomSpawnLocation() {
         return map.getRandomSpawnLocation();
-    }
-
-    public void handlePlayerFall(CookiePlayer player) {
-        // This method is called when a player falls into the void or takes lethal fall
-        // damage.
-        // It should result in a death and potentially a respawn or elimination.
-        if (getState() != GameState.RUNNING)
-            return;
-
-        int currentLives = getPlayerLives(player);
-        if (currentLives > 0) {
-            setPlayerLives(player, currentLives - 1); // Lose a life
-            playerDeathsThisMatch.put(player.getPlayer().getUniqueId(),
-                    playerDeathsThisMatch.getOrDefault(player.getPlayer().getUniqueId(), 0) + 1); // Record death for
-                                                                                                  // match stats
-            playerCurrentCombo.put(player.getPlayer().getUniqueId(), 0); // Reset combo on fall/death
-
-            if (getPlayerLives(player) <= 0) {
-                eliminatePlayer(player); // No attacker, self-elimination (fall)
-            } else {
-                // Resend message about lives left, and respawn
-                sendLivesMessage(player.getPlayer(), getPlayerLives(player));
-                respawnPlayer(player);
-            }
-        }
     }
 
     // New method to specifically record knockbacks that don't necessarily result in
@@ -498,8 +481,10 @@ public class PitchoutGame extends Game {
         UUID victimId = victim.getPlayer().getUniqueId();
 
         // Increment knockbacks count
-        int knockbacks = playerKnockbacksThisMatch.getOrDefault(attackerId, 0) + 1;
-        playerKnockbacksThisMatch.put(attackerId, knockbacks);
+        int knockbacks = playerKnockbacksGivenThisMatch.getOrDefault(attackerId, 0) + 1;
+        playerKnockbacksGivenThisMatch.put(attackerId, knockbacks);
+        int knockbacksReceived = playerKnockbacksReceivedThisMatch.getOrDefault(victimId, 0) + 1;
+        playerKnockbacksReceivedThisMatch.put(victimId, knockbacksReceived);
 
         // Update combo
         int currentCombo = playerCurrentCombo.getOrDefault(attackerId, 0) + 1;
