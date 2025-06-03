@@ -297,7 +297,8 @@ public class PitchoutGame extends Game {
 
                     if (perf == null) {
                         Pitchout.getInstance().getLogger().warning(
-                            "No performance record found for player " + playerId + " in match " + currentMatchInstance.getId());
+                                "No performance record found for player " + playerId + " in match "
+                                        + currentMatchInstance.getId());
                         continue;
                     }
 
@@ -316,7 +317,7 @@ public class PitchoutGame extends Game {
 
                 // Let MatchService handle its own transaction
                 matchService.endMatch(this.currentMatchInstance, winnerPlayerDataList);
-                
+
                 Pitchout.getInstance().getLogger().info("Pitchout match ended: " + this.currentMatchInstance.getId());
             } catch (Exception e) {
                 Pitchout.getInstance().getLogger().severe("Error saving match data: " + e.getMessage());
@@ -412,10 +413,10 @@ public class PitchoutGame extends Game {
 
     public void eliminatePlayer(CookiePlayer victim, CookiePlayer attacker) {
         UUID victimId = victim.getPlayer().getUniqueId();
-        
+
         if (attacker != null) {
             UUID attackerId = attacker.getPlayer().getUniqueId();
-            
+
             // Increment eliminations and knockbacks
             int elims = playerEliminationsThisMatch.getOrDefault(attackerId, 0) + 1;
             playerEliminationsThisMatch.put(attackerId, elims);
@@ -426,7 +427,7 @@ public class PitchoutGame extends Game {
             // Update combo
             int currentCombo = playerCurrentCombo.getOrDefault(attackerId, 0) + 1;
             playerCurrentCombo.put(attackerId, currentCombo);
-            
+
             int maxCombo = playerMaxComboThisMatch.getOrDefault(attackerId, 0);
             if (currentCombo > maxCombo) {
                 playerMaxComboThisMatch.put(attackerId, currentCombo);
@@ -503,7 +504,7 @@ public class PitchoutGame extends Game {
         // Update combo
         int currentCombo = playerCurrentCombo.getOrDefault(attackerId, 0) + 1;
         playerCurrentCombo.put(attackerId, currentCombo);
-        
+
         int maxCombo = playerMaxComboThisMatch.getOrDefault(attackerId, 0);
         if (currentCombo > maxCombo) {
             playerMaxComboThisMatch.put(attackerId, currentCombo);

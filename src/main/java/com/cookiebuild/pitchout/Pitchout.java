@@ -1,11 +1,12 @@
 package com.cookiebuild.pitchout;
 
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.java.JavaPlugin;
+
 import com.cookiebuild.cookiedough.game.GameManager;
 import com.cookiebuild.pitchout.game.PitchoutGame;
 import com.cookiebuild.pitchout.listeners.InGamePlayerListener;
 import com.cookiebuild.pitchout.map.MapManager;
-import org.bukkit.Bukkit;
-import org.bukkit.plugin.java.JavaPlugin;
 
 public final class Pitchout extends JavaPlugin {
     private static Pitchout instance;
@@ -29,7 +30,6 @@ public final class Pitchout extends JavaPlugin {
 
         // Initialize maps
         this.getLogger().info("Pitchout plugin enabled!");
-
 
         saveResource("config.yml", false);
 
