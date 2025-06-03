@@ -1,6 +1,7 @@
 package com.cookiebuild.pitchout.game;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -9,7 +10,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -38,6 +38,8 @@ import com.cookiebuild.pitchout.map.MapManager;
 import com.cookiebuild.pitchout.map.MapTemplate;
 
 import jakarta.persistence.EntityManager;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.title.Title;
 
 public class PitchoutGame extends Game {
     private static final int MAX_LIVES = 5;
@@ -197,21 +199,15 @@ public class PitchoutGame extends Game {
         }
     }
 
-    public static ChatColor getColorForLives(int lives) {
-        switch (lives) {
-            case 5:
-                return ChatColor.AQUA;
-            case 4:
-                return ChatColor.GREEN;
-            case 3:
-                return ChatColor.YELLOW;
-            case 2:
-                return ChatColor.GOLD; // Orange
-            case 1:
-                return ChatColor.RED;
-            default:
-                return ChatColor.GRAY; // For spectators or unexpected values
-        }
+    public static net.kyori.adventure.text.format.TextColor getColorForLives(int lives) {
+        return switch (lives) {
+            case 5 -> net.kyori.adventure.text.format.NamedTextColor.AQUA;
+            case 4 -> net.kyori.adventure.text.format.NamedTextColor.GREEN;
+            case 3 -> net.kyori.adventure.text.format.NamedTextColor.YELLOW;
+            case 2 -> net.kyori.adventure.text.format.NamedTextColor.GOLD; // Orange
+            case 1 -> net.kyori.adventure.text.format.NamedTextColor.RED;
+            default -> net.kyori.adventure.text.format.NamedTextColor.GRAY; // For spectators or unexpected values
+        };
     }
 
     private void updateGameInfo() {
@@ -234,8 +230,8 @@ public class PitchoutGame extends Game {
             Player bukkitPlayer = player.getPlayer();
             boolean isSpectator = bukkitPlayer.getGameMode() == GameMode.SPECTATOR;
 
-            bukkitPlayer.sendActionBar(
-                    LocaleManager.getMessage(gameState, player.getPlayer().locale()) + " " + countdownInfo);
+            bukkitPlayer.sendActionBar(Component.text(
+                    LocaleManager.getMessage(gameState, player.getPlayer().locale()) + " " + countdownInfo));
 
             scoreboardManager.createScoreboard(bukkitPlayer, "Pitchout");
             scoreboardManager.updateScore(bukkitPlayer, "Game State:", 15);
@@ -248,9 +244,11 @@ public class PitchoutGame extends Game {
             for (CookiePlayer p : getPlayers()) {
                 if (!isSpectator || p != player) {
                     int lives = playerLives.get(p);
-                    ChatColor color = getColorForLives(lives);
-                    String playerInfo = color + p.getPlayer().getName() + ChatColor.RESET + ": " + lives;
-                    scoreboardManager.updateScore(bukkitPlayer, playerInfo, line--);
+                    Component playerInfo = Component.text()
+                            .append(Component.text(p.getPlayer().getName()).color(getColorForLives(lives)))
+                            .append(Component.text(": " + lives))
+                            .build();
+                    scoreboardManager.updateScore(bukkitPlayer, playerInfo.toString(), line--);
                 }
             }
         }
@@ -280,9 +278,32 @@ public class PitchoutGame extends Game {
         }
 
         if (this.currentMatchInstance != null) {
+            // Save final performances for all players
+            for (Map.Entry<UUID, PlayerData> entry : participantPlayerData.entrySet()) {
+                UUID playerId = entry.getKey();
+                PitchoutMatchPerformance perf = matchPerformances.get(playerId);
+
+                if (perf == null) {
+                    Pitchout.getInstance().getLogger().warning("No performance record found for player " + playerId
+                            + " in match " + currentMatchInstance.getId());
+                    continue;
+                }
+
+                // Update metrics in existing performance record
+                perf.setEliminations(playerEliminationsThisMatch.getOrDefault(playerId, 0));
+                perf.setDeathsInMatch(playerDeathsThisMatch.getOrDefault(playerId, 0));
+                perf.setKnockbacks(playerKnockbacksThisMatch.getOrDefault(playerId, 0));
+                perf.setMaxCombo(playerMaxComboThisMatch.getOrDefault(playerId, 0));
+
+                // Save the updated performance
+                gameEntityManager.getTransaction().begin();
+                gameEntityManager.merge(perf);
+                gameEntityManager.getTransaction().commit();
+            }
+
+            // Record match winners
             matchService.endMatch(this.currentMatchInstance, winnerPlayerDataList);
             Pitchout.getInstance().getLogger().info("Pitchout match ended: " + this.currentMatchInstance.getId());
-
         } else {
             Pitchout.getInstance().getLogger().warning("currentMatchInstance was null during endGame for Pitchout.");
         }
@@ -290,10 +311,19 @@ public class PitchoutGame extends Game {
         String winMessage = winner != null ? "game.win_player" : "game.draw";
 
         for (CookiePlayer player : getPlayers()) {
-            player.getPlayer().sendMessage(LocaleManager.getMessage(winMessage, player.getPlayer().locale(),
-                    winner != null ? winner.getPlayer().getName() : ""));
-            player.getPlayer().sendTitle(LocaleManager.getMessage(winMessage, player.getPlayer().locale(),
-                    winner != null ? winner.getPlayer().getName() : ""), null, 20, 40, 20);
+            player.getPlayer()
+                    .sendMessage(Component.text(LocaleManager.getMessage(winMessage, player.getPlayer().locale(),
+                            winner != null ? winner.getPlayer().getName() : "")));
+
+            Title endTitle = Title.title(
+                    Component.text(LocaleManager.getMessage(winMessage, player.getPlayer().locale(),
+                            winner != null ? winner.getPlayer().getName() : "")),
+                    Component.empty(),
+                    Title.Times.times(
+                            Duration.ofMillis(500),
+                            Duration.ofSeconds(2),
+                            Duration.ofMillis(500)));
+            player.getPlayer().showTitle(endTitle);
         }
 
         // Start a countdown timer
@@ -307,8 +337,15 @@ public class PitchoutGame extends Game {
                     for (UUID playerId : participantPlayerData.keySet()) {
                         Player p = Bukkit.getPlayer(playerId);
                         if (p != null && p.isOnline()) {
-                            p.sendTitle("", LocaleManager.getMessage("game.teleport_countdown", p.locale(),
-                                    String.valueOf(timeLeft)));
+                            Title countdownTitle = Title.title(
+                                    Component.empty(),
+                                    Component.text(LocaleManager.getMessage("game.teleport_countdown", p.locale(),
+                                            new Object[] { timeLeft })),
+                                    Title.Times.times(
+                                            Duration.ofMillis(250),
+                                            Duration.ofMillis(500),
+                                            Duration.ofMillis(250)));
+                            p.showTitle(countdownTitle);
                         }
                     }
                     timeLeft--;
@@ -381,8 +418,10 @@ public class PitchoutGame extends Game {
         playerLives.put(victim, 0); // Actual elimination (loss of all lives)
         victim.getPlayer().setGameMode(GameMode.SPECTATOR);
         victim.getPlayer().sendMessage(LocaleManager.getMessage("game.player_eliminated", victim.getPlayer().locale()));
-        victim.getPlayer().sendTitle(LocaleManager.getMessage("game.now_spectating", victim.getPlayer().locale()), null,
-                20, 40, 20);
+        sendGameTitle(
+                victim.getPlayer(),
+                LocaleManager.getMessage("game.now_spectating", victim.getPlayer().locale()),
+                null);
         victim.setState(PlayerState.SPECTATING);
         checkForWinner();
     }
@@ -415,8 +454,7 @@ public class PitchoutGame extends Game {
                 eliminatePlayer(player); // No attacker, self-elimination (fall)
             } else {
                 // Resend message about lives left, and respawn
-                player.getPlayer()
-                        .sendMessage(ChatColor.YELLOW + "You have " + getPlayerLives(player) + " lives remaining.");
+                sendLivesMessage(player.getPlayer(), getPlayerLives(player));
                 respawnPlayer(player);
             }
         }
@@ -454,5 +492,25 @@ public class PitchoutGame extends Game {
 
     public MapTemplate getTemplate() {
         return map.getTemplate();
+    }
+
+    private void sendGameTitle(Player player, String title, String subtitle) {
+        Title.Times times = Title.Times.times(
+                Duration.ofMillis(500), // fade in
+                Duration.ofSeconds(2), // stay
+                Duration.ofMillis(500) // fade out
+        );
+
+        Title gameTitle = Title.title(
+                Component.text(title),
+                subtitle != null ? Component.text(subtitle) : Component.empty(),
+                times);
+
+        player.showTitle(gameTitle);
+    }
+
+    private void sendLivesMessage(Player player, int lives) {
+        player.sendMessage(Component.text("You have " + lives + " lives remaining.")
+                .color(net.kyori.adventure.text.format.NamedTextColor.YELLOW));
     }
 }
