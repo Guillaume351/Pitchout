@@ -1,9 +1,7 @@
 package com.cookiebuild.pitchout;
 
 import com.cookiebuild.cookiedough.game.GameManager;
-import com.cookiebuild.cookiedough.utils.HibernateUtil;
 import com.cookiebuild.pitchout.game.PitchoutGame;
-import com.cookiebuild.pitchout.game.PitchoutMatchPerformance;
 import com.cookiebuild.pitchout.listeners.InGamePlayerListener;
 import com.cookiebuild.pitchout.map.MapManager;
 import org.bukkit.Bukkit;
@@ -28,9 +26,6 @@ public final class Pitchout extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
-
-        // Register Pitchout entities with Hibernate before any sessions are created
-        HibernateUtil.registerEntity(PitchoutMatchPerformance.class);
 
         // Initialize maps
         this.getLogger().info("Pitchout plugin enabled!");

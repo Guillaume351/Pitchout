@@ -27,6 +27,7 @@ import com.cookiebuild.cookiedough.game.GameState;
 import com.cookiebuild.cookiedough.lobby.LobbyManager;
 import com.cookiebuild.cookiedough.model.Match;
 import com.cookiebuild.cookiedough.model.PlayerData;
+import com.cookiebuild.cookiedough.model.PlayerMatchPerformance;
 import com.cookiebuild.cookiedough.player.CookiePlayer;
 import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.cookiedough.service.MatchService;
@@ -36,6 +37,7 @@ import com.cookiebuild.pitchout.Pitchout;
 import com.cookiebuild.pitchout.map.GameMap;
 import com.cookiebuild.pitchout.map.MapManager;
 import com.cookiebuild.pitchout.map.MapTemplate;
+import com.google.gson.JsonObject;
 
 import jakarta.persistence.EntityManager;
 import net.kyori.adventure.text.Component;
@@ -52,12 +54,13 @@ public class PitchoutGame extends Game {
     private MatchService matchService;
     private Match currentMatchInstance;
     private final HashMap<UUID, PlayerData> participantPlayerData = new HashMap<>();
+    private final Map<UUID, PlayerMatchPerformance> matchPerformances = new HashMap<>();
     private final HashMap<UUID, Integer> playerEliminationsThisMatch = new HashMap<>(); // Kills by this player
     private final HashMap<UUID, Integer> playerDeathsThisMatch = new HashMap<>(); // Times this player was eliminated
     private final HashMap<UUID, Integer> playerKnockbacksThisMatch = new HashMap<>();
     private final HashMap<UUID, Integer> playerCurrentCombo = new HashMap<>();
     private final HashMap<UUID, Integer> playerMaxComboThisMatch = new HashMap<>();
-    private final Map<UUID, PitchoutMatchPerformance> matchPerformances = new HashMap<>();
+    private final HashMap<UUID, Integer> playerSelfFallsThisMatch = new HashMap<>();
     // --- End New Stats and Match Tracking Fields ---
 
     public PitchoutGame() {
@@ -173,9 +176,8 @@ public class PitchoutGame extends Game {
 
     @Override
     public void startGame() {
-        super.startGame(); // Call the base game's startGame logic first
+        super.startGame();
 
-        // Game is starting, players are already added to participantPlayerData
         if (!participantPlayerData.isEmpty()) {
             this.currentMatchInstance = matchService.startMatch("Pitchout",
                     new ArrayList<>(participantPlayerData.values()));
@@ -183,7 +185,6 @@ public class PitchoutGame extends Game {
                 Pitchout.getInstance().getLogger().info("Pitchout match started: " + this.currentMatchInstance.getId());
             } else {
                 Pitchout.getInstance().getLogger().severe("Failed to start Pitchout match instance.");
-                // Potentially set game to an error state or cancel
             }
         } else {
             Pitchout.getInstance().getLogger()
@@ -193,7 +194,7 @@ public class PitchoutGame extends Game {
         // Initialize performance tracking for all players
         for (UUID playerId : participantPlayerData.keySet()) {
             PlayerData playerData = participantPlayerData.get(playerId);
-            PitchoutMatchPerformance perf = new PitchoutMatchPerformance(currentMatchInstance, playerData);
+            PlayerMatchPerformance perf = new PlayerMatchPerformance(currentMatchInstance, playerData);
             matchPerformances.put(playerId, perf);
             currentMatchInstance.addPerformance(perf);
         }
@@ -230,6 +231,7 @@ public class PitchoutGame extends Game {
             Player bukkitPlayer = player.getPlayer();
             boolean isSpectator = bukkitPlayer.getGameMode() == GameMode.SPECTATOR;
 
+            // Adventure API components for action bar
             bukkitPlayer.sendActionBar(Component.text(
                     LocaleManager.getMessage(gameState, player.getPlayer().locale()) + " " + countdownInfo));
 
@@ -244,14 +246,23 @@ public class PitchoutGame extends Game {
             for (CookiePlayer p : getPlayers()) {
                 if (!isSpectator || p != player) {
                     int lives = playerLives.get(p);
-                    Component playerInfo = Component.text()
-                            .append(Component.text(p.getPlayer().getName()).color(getColorForLives(lives)))
-                            .append(Component.text(": " + lives))
-                            .build();
-                    scoreboardManager.updateScore(bukkitPlayer, playerInfo.toString(), line--);
+                    String color = getColorForScoreboard(lives);
+                    String playerInfo = color + p.getPlayer().getName() + ": " + lives;
+                    scoreboardManager.updateScore(bukkitPlayer, playerInfo, line--);
                 }
             }
         }
+    }
+
+    private String getColorForScoreboard(int lives) {
+        return switch (lives) {
+            case 5 -> "§b"; // AQUA
+            case 4 -> "§a"; // GREEN
+            case 3 -> "§e"; // YELLOW
+            case 2 -> "§6"; // GOLD
+            case 1 -> "§c"; // RED
+            default -> "§7"; // GRAY
+        };
     }
 
     private void checkForWinner() {
@@ -278,36 +289,44 @@ public class PitchoutGame extends Game {
         }
 
         if (this.currentMatchInstance != null) {
-            // Save final performances for all players
-            for (Map.Entry<UUID, PlayerData> entry : participantPlayerData.entrySet()) {
-                UUID playerId = entry.getKey();
-                PitchoutMatchPerformance perf = matchPerformances.get(playerId);
+            try {
+                // Save final performances for all players
+                for (Map.Entry<UUID, PlayerData> entry : participantPlayerData.entrySet()) {
+                    UUID playerId = entry.getKey();
+                    PlayerMatchPerformance perf = matchPerformances.get(playerId);
 
-                if (perf == null) {
-                    Pitchout.getInstance().getLogger().warning("No performance record found for player " + playerId
-                            + " in match " + currentMatchInstance.getId());
-                    continue;
+                    if (perf == null) {
+                        Pitchout.getInstance().getLogger().warning(
+                            "No performance record found for player " + playerId + " in match " + currentMatchInstance.getId());
+                        continue;
+                    }
+
+                    // Create JSON object for Pitchout-specific metrics
+                    JsonObject metrics = new JsonObject();
+                    metrics.addProperty("eliminations", playerEliminationsThisMatch.getOrDefault(playerId, 0));
+                    metrics.addProperty("knockbacks", playerKnockbacksThisMatch.getOrDefault(playerId, 0));
+                    metrics.addProperty("maxCombo", playerMaxComboThisMatch.getOrDefault(playerId, 0));
+                    metrics.addProperty("selfFalls", playerSelfFallsThisMatch.getOrDefault(playerId, 0));
+
+                    // Update core metrics
+                    perf.setDeathsInMatch(playerDeathsThisMatch.getOrDefault(playerId, 0));
+                    perf.setKillsInMatch(playerEliminationsThisMatch.getOrDefault(playerId, 0));
+                    perf.setGameSpecificMetrics(metrics.toString());
                 }
 
-                // Update metrics in existing performance record
-                perf.setEliminations(playerEliminationsThisMatch.getOrDefault(playerId, 0));
-                perf.setDeathsInMatch(playerDeathsThisMatch.getOrDefault(playerId, 0));
-                perf.setKnockbacks(playerKnockbacksThisMatch.getOrDefault(playerId, 0));
-                perf.setMaxCombo(playerMaxComboThisMatch.getOrDefault(playerId, 0));
-
-                // Save the updated performance
-                gameEntityManager.getTransaction().begin();
-                gameEntityManager.merge(perf);
-                gameEntityManager.getTransaction().commit();
+                // Let MatchService handle its own transaction
+                matchService.endMatch(this.currentMatchInstance, winnerPlayerDataList);
+                
+                Pitchout.getInstance().getLogger().info("Pitchout match ended: " + this.currentMatchInstance.getId());
+            } catch (Exception e) {
+                Pitchout.getInstance().getLogger().severe("Error saving match data: " + e.getMessage());
+                e.printStackTrace();
             }
-
-            // Record match winners
-            matchService.endMatch(this.currentMatchInstance, winnerPlayerDataList);
-            Pitchout.getInstance().getLogger().info("Pitchout match ended: " + this.currentMatchInstance.getId());
         } else {
             Pitchout.getInstance().getLogger().warning("currentMatchInstance was null during endGame for Pitchout.");
         }
 
+        // Handle game end messaging and cleanup
         String winMessage = winner != null ? "game.win_player" : "game.draw";
 
         for (CookiePlayer player : getPlayers()) {
@@ -393,29 +412,36 @@ public class PitchoutGame extends Game {
 
     public void eliminatePlayer(CookiePlayer victim, CookiePlayer attacker) {
         UUID victimId = victim.getPlayer().getUniqueId();
-        PitchoutMatchPerformance victimPerf = matchPerformances.get(victimId);
-
+        
         if (attacker != null) {
             UUID attackerId = attacker.getPlayer().getUniqueId();
-            PitchoutMatchPerformance attackerPerf = matchPerformances.get(attackerId);
+            
+            // Increment eliminations and knockbacks
+            int elims = playerEliminationsThisMatch.getOrDefault(attackerId, 0) + 1;
+            playerEliminationsThisMatch.put(attackerId, elims);
 
-            attackerPerf.incrementEliminations();
-            attackerPerf.incrementKnockbacks();
+            int knockbacks = playerKnockbacksThisMatch.getOrDefault(attackerId, 0) + 1;
+            playerKnockbacksThisMatch.put(attackerId, knockbacks);
 
             // Update combo
             int currentCombo = playerCurrentCombo.getOrDefault(attackerId, 0) + 1;
             playerCurrentCombo.put(attackerId, currentCombo);
-            if (currentCombo > attackerPerf.getMaxCombo()) {
-                attackerPerf.setMaxCombo(currentCombo);
+            
+            int maxCombo = playerMaxComboThisMatch.getOrDefault(attackerId, 0);
+            if (currentCombo > maxCombo) {
+                playerMaxComboThisMatch.put(attackerId, currentCombo);
             }
         } else {
-            victimPerf.incrementSelfFalls();
+            // Self fall
+            int selfFalls = playerSelfFallsThisMatch.getOrDefault(victimId, 0) + 1;
+            playerSelfFallsThisMatch.put(victimId, selfFalls);
         }
 
         // Reset victim's combo
         playerCurrentCombo.put(victimId, 0);
 
-        playerLives.put(victim, 0); // Actual elimination (loss of all lives)
+        // Handle actual elimination
+        playerLives.put(victim, 0);
         victim.getPlayer().setGameMode(GameMode.SPECTATOR);
         victim.getPlayer().sendMessage(LocaleManager.getMessage("game.player_eliminated", victim.getPlayer().locale()));
         sendGameTitle(
@@ -470,14 +496,17 @@ public class PitchoutGame extends Game {
         UUID attackerId = attacker.getPlayer().getUniqueId();
         UUID victimId = victim.getPlayer().getUniqueId();
 
-        PitchoutMatchPerformance attackerPerf = matchPerformances.get(attackerId);
-        attackerPerf.incrementKnockbacks();
+        // Increment knockbacks count
+        int knockbacks = playerKnockbacksThisMatch.getOrDefault(attackerId, 0) + 1;
+        playerKnockbacksThisMatch.put(attackerId, knockbacks);
 
         // Update combo
         int currentCombo = playerCurrentCombo.getOrDefault(attackerId, 0) + 1;
         playerCurrentCombo.put(attackerId, currentCombo);
-        if (currentCombo > attackerPerf.getMaxCombo()) {
-            attackerPerf.setMaxCombo(currentCombo);
+        
+        int maxCombo = playerMaxComboThisMatch.getOrDefault(attackerId, 0);
+        if (currentCombo > maxCombo) {
+            playerMaxComboThisMatch.put(attackerId, currentCombo);
         }
 
         // Reset victim's combo
