@@ -1,12 +1,9 @@
 package com.cookiebuild.pitchout.listeners;
 
-import com.cookiebuild.cookiedough.game.Game;
-import com.cookiebuild.cookiedough.game.GameManager;
-import com.cookiebuild.cookiedough.listener.BaseEventBlocker;
-import com.cookiebuild.cookiedough.player.CookiePlayer;
-import com.cookiebuild.cookiedough.player.PlayerManager;
-import com.cookiebuild.cookiedough.player.PlayerState;
-import com.cookiebuild.pitchout.game.PitchoutGame;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Particle;
@@ -20,9 +17,13 @@ import org.bukkit.event.entity.ProjectileLaunchEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
+import com.cookiebuild.cookiedough.game.Game;
+import com.cookiebuild.cookiedough.game.GameManager;
+import com.cookiebuild.cookiedough.listener.BaseEventBlocker;
+import com.cookiebuild.cookiedough.player.CookiePlayer;
+import com.cookiebuild.cookiedough.player.PlayerManager;
+import com.cookiebuild.cookiedough.player.PlayerState;
+import com.cookiebuild.pitchout.game.PitchoutGame;
 
 public class InGamePlayerListener extends BaseEventBlocker {
 
@@ -78,6 +79,9 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 if (damager.getGameMode() != GameMode.SPECTATOR) {
                     lastHitBy.put(player, damager);
                     player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1, 1);
+                    // Increment knockback count of damager
+                    PitchoutGame game = getPlayersGame(player);
+                    game.recordPlayerKnockback(PlayerManager.getPlayer(damager), PlayerManager.getPlayer(player));
 
                 }
             }
@@ -102,7 +106,8 @@ public class InGamePlayerListener extends BaseEventBlocker {
             }
         }
 
-        if (player.getLocation().getY() < getPlayersGame(player).getTemplate().getKillY()) { // Adjust this value based on your map
+        if (player.getLocation().getY() < getPlayersGame(player).getTemplate().getKillY()) { // Adjust this value based
+                                                                                             // on your map
             handlePlayerFall(player);
         }
     }
@@ -122,15 +127,18 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 if (lastHitter != null) {
                     lastHitter.sendMessage("§aYou knocked " + player.getName() + " off the platform!");
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
-                    // remove last hitter
                 }
                 player.setDisplayName(PitchoutGame.getColorForLives(lives) + " " + player.getName());
             } else {
-                pitchoutGame.eliminatePlayer(cookiePlayer);
+
                 player.sendMessage("§cYou have been eliminated from the game!");
                 if (lastHitter != null) {
                     lastHitter.sendMessage("§aYou eliminated " + player.getName() + " from the game!");
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 2);
+
+                    pitchoutGame.eliminatePlayer(cookiePlayer, PlayerManager.getPlayer(lastHitter));
+                } else {
+                    pitchoutGame.eliminatePlayer(cookiePlayer);
                 }
                 // firework sound
                 player.getWorld().playSound(player.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1, 1);
@@ -144,7 +152,6 @@ public class InGamePlayerListener extends BaseEventBlocker {
             player.teleport(spawnLocation);
             // Add Green (villager) particles on respawn
             player.getWorld().spawnParticle(Particle.HAPPY_VILLAGER, spawnLocation, 100, 0.1, 0.1, 0.1, 0);
-
 
             player.setFallDistance(0);
         }
