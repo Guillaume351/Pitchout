@@ -283,30 +283,6 @@ public class PitchoutGame extends Game {
             matchService.endMatch(this.currentMatchInstance, winnerPlayerDataList);
             Pitchout.getInstance().getLogger().info("Pitchout match ended: " + this.currentMatchInstance.getId());
 
-            for (Map.Entry<UUID, PlayerData> entry : participantPlayerData.entrySet()) {
-                UUID playerId = entry.getKey();
-                PlayerData playerData = entry.getValue();
-                boolean won = (winner != null && winner.getPlayer().getUniqueId().equals(playerId));
-
-                int eliminations = playerEliminationsThisMatch.getOrDefault(playerId, 0);
-                int deaths = playerDeathsThisMatch.getOrDefault(playerId, 0);
-                int knockbacks = playerKnockbacksThisMatch.getOrDefault(playerId, 0);
-                int maxCombo = playerMaxComboThisMatch.getOrDefault(playerId, 0);
-
-                Map<String, Object> specificMetrics = new HashMap<>();
-                specificMetrics.put("knockbacks", knockbacks);
-                specificMetrics.put("maxCombo", maxCombo);
-                // Add other Pitchout specific metrics if any
-
-                matchService.recordPlayerPerformance(this.currentMatchInstance, playerData, eliminations, deaths,
-                        0 /* assists */, specificMetrics);
-
-                // Update aggregate stats
-                // For updateStatsAfterGame: player, won, kills, deaths, knockbacks,
-                // eliminations
-                // We use 'eliminations' from match for both 'kills' and 'eliminations' in
-                // aggregate manager.
-            }
         } else {
             Pitchout.getInstance().getLogger().warning("currentMatchInstance was null during endGame for Pitchout.");
         }

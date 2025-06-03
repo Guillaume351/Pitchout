@@ -78,7 +78,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
             if (damageByEntityEvent.getDamager() instanceof Player damager) {
                 if (damager.getGameMode() != GameMode.SPECTATOR) {
                     lastHitBy.put(player, damager);
-                    player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1, 1);
+                    player.playSound(damager.getLocation(), Sound.ENTITY_PLAYER_HURT, 1, 1);
                     // Increment knockback count of damager
                     PitchoutGame game = getPlayersGame(player);
                     game.recordPlayerKnockback(PlayerManager.getPlayer(damager), PlayerManager.getPlayer(player));
