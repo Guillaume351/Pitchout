@@ -2,4 +2,5 @@ name: Pitchout
 version: '${version}'
 main: com.cookiebuild.pitchout.Pitchout
 api-version: '1.21'
-load: STARTUP
+load: POSTWORLD
+depend: [CookieDough]
