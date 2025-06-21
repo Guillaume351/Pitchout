@@ -118,7 +118,8 @@ public class PitchoutGame extends Game {
         World gameWorld = Bukkit.getWorld("game_maps/" + this.getGameId().toString());
 
         if (gameWorld == null) {
-            player.getPlayer().sendMessage("Error: The game world is not loaded.");
+            player.getPlayer()
+                    .sendMessage(LocaleManager.getMessage("pitchout.world_not_loaded", player.getPlayer().locale()));
             return;
         }
 
@@ -548,7 +549,13 @@ public class PitchoutGame extends Game {
     }
 
     private void sendLivesMessage(Player player, int lives) {
-        player.sendMessage(Component.text("You have " + lives + " lives remaining.")
-                .color(net.kyori.adventure.text.format.NamedTextColor.YELLOW));
+        player.sendMessage(LocaleManager.getMessage("pitchout.lives_remaining", player.locale(), lives));
+    }
+
+    /**
+     * Helper method to get localized messages for Pitchout
+     */
+    public static String getLocalizedMessage(Player player, String key, Object... args) {
+        return LocaleManager.getMessage(key, player.locale(), args);
     }
 }

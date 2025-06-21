@@ -145,9 +145,10 @@ public class InGamePlayerListener extends BaseEventBlocker {
             if (lives > 1) {
                 lives--;
                 pitchoutGame.setPlayerLives(cookiePlayer, lives);
-                player.sendMessage("§cYou lost a life! You have " + lives + " lives remaining.");
+                player.sendMessage(PitchoutGame.getLocalizedMessage(player, "pitchout.life_lost", lives));
                 if (lastHitter != null) {
-                    lastHitter.sendMessage("§aYou knocked " + player.getName() + " off the platform!");
+                    lastHitter.sendMessage(
+                            PitchoutGame.getLocalizedMessage(lastHitter, "pitchout.player_knocked", player.getName()));
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
 
                     // Increment knockback count of last hitter
@@ -157,11 +158,12 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
             } else {
 
-                player.sendMessage("§cYou have been eliminated from the game!");
+                player.sendMessage(PitchoutGame.getLocalizedMessage(player, "pitchout.player_eliminated_game"));
 
                 if (lastHitter != null) {
                     Pitchout.getInstance().getLogger().warning("Last hitter is " + lastHitter.getName());
-                    lastHitter.sendMessage("§aYou eliminated " + player.getName() + " from the game!");
+                    lastHitter.sendMessage(PitchoutGame.getLocalizedMessage(lastHitter, "pitchout.eliminated_player",
+                            player.getName()));
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 2);
 
                     pitchoutGame.eliminatePlayer(cookiePlayer, PlayerManager.getPlayer(lastHitter));
