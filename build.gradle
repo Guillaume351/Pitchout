@@ -18,9 +18,9 @@ repositories {
 }
 
 dependencies {
-    implementation 'org.hibernate:hibernate-core:6.5.2.Final'
-    implementation files("../CookieDough/build/libs/CookieDough-1.0-SNAPSHOT.jar")
+    implementation project(path: ':CookieDough', configuration: 'shadow')
     compileOnly 'io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT'
+    compileOnly 'org.hibernate:hibernate-core:6.5.2.Final'
 }
 
 def targetJavaVersion = 21

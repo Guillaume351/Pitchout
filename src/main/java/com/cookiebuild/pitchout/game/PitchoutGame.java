@@ -31,7 +31,7 @@ import com.cookiebuild.cookiedough.model.PlayerMatchPerformance;
 import com.cookiebuild.cookiedough.player.CookiePlayer;
 import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.cookiedough.service.MatchService;
-import com.cookiebuild.cookiedough.service.PlayerMinigameProgressionService;
+import com.cookiebuild.cookiedough.service.MinigameStatsService;
 import com.cookiebuild.cookiedough.ui.CustomScoreboardManager;
 import com.cookiebuild.cookiedough.utils.LocaleManager;
 import com.cookiebuild.pitchout.Pitchout;
@@ -288,97 +288,58 @@ public class PitchoutGame extends Game {
     }
 
     private void endGame(CookiePlayer winner) {
-        setState(GameState.FINISHED);
-
-        List<PlayerData> winnerPlayerDataList = new ArrayList<>();
-        if (winner != null) {
-            PlayerData pd = participantPlayerData.get(winner.getPlayer().getUniqueId());
-            if (pd != null) {
-                winnerPlayerDataList.add(pd);
-            }
+        if (getState() == GameState.FINISHED) {
+            return;
         }
 
+        this.setState(GameState.FINISHED);
+        Pitchout.getInstance().getLogger()
+                .info("Game ended. Winner: " + (winner != null ? winner.getPlayer().getName() : "None"));
+
+        // Finalize match data
         if (this.currentMatchInstance != null) {
-            try {
-                // Save final performances for all players
-                for (Map.Entry<UUID, PlayerData> entry : participantPlayerData.entrySet()) {
-                    UUID playerId = entry.getKey();
-                    PlayerMatchPerformance perf = matchPerformances.get(playerId);
-
-                    if (perf == null) {
-                        Pitchout.getInstance().getLogger().warning(
-                                "No performance record found for player " + playerId + " in match "
-                                        + currentMatchInstance.getId());
-                        continue;
-                    }
-
-                    // Create JSON object for Pitchout-specific metrics
-                    JsonObject metrics = new JsonObject();
-                    metrics.addProperty("eliminations", playerEliminationsThisMatch.getOrDefault(playerId, 0));
-                    metrics.addProperty("knockbacksGiven",
-                            playerKnockbacksGivenThisMatch.getOrDefault(playerId, 0));
-                    metrics.addProperty("knockbacksReceived",
-                            playerKnockbacksReceivedThisMatch.getOrDefault(playerId, 0));
-                    metrics.addProperty("maxCombo", playerMaxComboThisMatch.getOrDefault(playerId, 0));
-                    metrics.addProperty("selfFalls", playerSelfFallsThisMatch.getOrDefault(playerId, 0));
-
-                    // Update core metrics
-                    perf.setDeathsInMatch(playerDeathsThisMatch.getOrDefault(playerId, 0));
-                    perf.setKillsInMatch(playerEliminationsThisMatch.getOrDefault(playerId, 0));
-                    perf.setGameSpecificMetrics(metrics.toString());
+            List<PlayerData> winners = new ArrayList<>();
+            if (winner != null) {
+                PlayerData winnerData = participantPlayerData.get(winner.getPlayer().getUniqueId());
+                if (winnerData != null) {
+                    winners.add(winnerData);
                 }
-
-                // Let MatchService handle its own transaction
-                matchService.endMatch(this.currentMatchInstance, winnerPlayerDataList);
-
-                // Reward all players with coins and XP based on their performance
-                PlayerMinigameProgressionService progressionService = new PlayerMinigameProgressionService(
-                        gameEntityManager);
-                for (Map.Entry<UUID, PlayerData> entry : participantPlayerData.entrySet()) {
-                    UUID playerId = entry.getKey();
-                    PlayerData playerData = entry.getValue();
-                    boolean isWinner = winnerPlayerDataList.contains(playerData);
-
-                    // Get player's performance stats for this match
-                    int eliminations = playerEliminationsThisMatch.getOrDefault(playerId, 0);
-                    int deaths = playerDeathsThisMatch.getOrDefault(playerId, 0);
-
-                    try {
-                        progressionService.rewardPlayer(playerId, PlayerMinigameProgressionService.PITCHOUT,
-                                isWinner, eliminations, deaths);
-                    } catch (Exception e) {
-                        Pitchout.getInstance().getLogger()
-                                .severe("Error rewarding player " + playerId + ": " + e.getMessage());
-                        e.printStackTrace();
-                    }
-                }
-
-                Pitchout.getInstance().getLogger().info("Pitchout match ended: " + this.currentMatchInstance.getId());
-            } catch (Exception e) {
-                Pitchout.getInstance().getLogger().severe("Error saving match data: " + e.getMessage());
-                e.printStackTrace();
             }
-        } else {
-            Pitchout.getInstance().getLogger().warning("currentMatchInstance was null during endGame for Pitchout.");
+            matchService.endMatch(this.currentMatchInstance, winners);
+            Pitchout.getInstance().getLogger().info("Pitchout match finalized: " + this.currentMatchInstance.getId());
         }
 
-        // Handle game end messaging and cleanup
-        String winMessage = winner != null ? "game.win_player" : "game.draw";
-
+        // Display titles and messages to all players
         for (CookiePlayer player : getPlayers()) {
-            player.getPlayer()
-                    .sendMessage(Component.text(LocaleManager.getMessage(winMessage, player.getPlayer().locale(),
-                            winner != null ? winner.getPlayer().getName() : "")));
+            Player bukkitPlayer = player.getPlayer();
+            if (winner != null) {
+                if (bukkitPlayer.equals(winner.getPlayer())) {
+                    sendGameTitle(bukkitPlayer, "§6§lVICTORY!", "§7You are the last one standing!");
+                    bukkitPlayer.sendMessage("§aYou won the game! §e+100 XP, +25 Coins");
+                } else {
+                    sendGameTitle(bukkitPlayer, "§c§lGAME OVER",
+                            "§7" + winner.getPlayer().getName() + " won the game.");
+                    bukkitPlayer.sendMessage("§cYou were eliminated. §e+10 XP, +5 Coins");
+                }
+            } else {
+                sendGameTitle(bukkitPlayer, "§c§lDRAW", "§7The game ended in a draw.");
+            }
+        }
 
-            Title endTitle = Title.title(
-                    Component.text(LocaleManager.getMessage(winMessage, player.getPlayer().locale(),
-                            winner != null ? winner.getPlayer().getName() : "")),
-                    Component.empty(),
-                    Title.Times.times(
-                            Duration.ofMillis(500),
-                            Duration.ofSeconds(2),
-                            Duration.ofMillis(500)));
-            player.getPlayer().showTitle(endTitle);
+        // Reward players
+        MinigameStatsService statsService = CookieDough.createMinigameStatsService();
+        for (UUID playerId : participantPlayerData.keySet()) {
+            boolean isWinner = winner != null && winner.getPlayer().getUniqueId().equals(playerId);
+            com.cookiebuild.cookiedough.model.MinigameStats stats = statsService.getOrCreateStats(playerId,
+                    MinigameStatsService.PITCHOUT);
+            if (isWinner) {
+                stats.addExperience(100);
+                stats.addCoins(25);
+            } else {
+                stats.addExperience(10);
+                stats.addCoins(5);
+            }
+            statsService.saveStats(stats);
         }
 
         // Start a countdown timer
