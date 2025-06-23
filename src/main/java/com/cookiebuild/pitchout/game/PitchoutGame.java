@@ -393,9 +393,12 @@ public class PitchoutGame extends Game {
     public void removePlayer(CookiePlayer player) {
         super.removePlayer(player);
         playerLives.remove(player);
+
         scoreboardManager.removeScoreboard(player.getPlayer());
         if (getState() == GameState.RUNNING) {
             checkForWinner();
+        } else {
+            participantPlayerData.remove(player.getPlayer().getUniqueId());
         }
     }
 
