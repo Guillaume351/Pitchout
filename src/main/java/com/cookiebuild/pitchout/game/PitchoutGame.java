@@ -33,6 +33,7 @@ import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.cookiedough.service.MatchService;
 import com.cookiebuild.cookiedough.service.MinigameStatsService;
 import com.cookiebuild.cookiedough.ui.CustomScoreboardManager;
+import com.cookiebuild.cookiedough.utils.HibernateUtil;
 import com.cookiebuild.cookiedough.utils.LocaleManager;
 import com.cookiebuild.pitchout.Pitchout;
 import com.cookiebuild.pitchout.map.GameMap;
@@ -70,7 +71,7 @@ public class PitchoutGame extends Game {
         this.scoreboardManager = new CustomScoreboardManager();
 
         // Initialize EntityManager and services
-        this.gameEntityManager = CookieDough.sessionFactory.createEntityManager();
+        this.gameEntityManager = HibernateUtil.createEntityManager();
         this.matchService = new MatchService(this.gameEntityManager);
 
         Bukkit.getScheduler().runTask(Pitchout.getInstance(), () -> {

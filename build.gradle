@@ -18,14 +18,9 @@ repositories {
 }
 
 dependencies {
-    implementation project(':CookieDough')
+    implementation project(path: ':CookieDough', configuration: 'shadow')
     compileOnly 'org.hibernate:hibernate-core:6.5.2.Final'
     compileOnly 'io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT'
-}
-
-// Ensure Pitchout waits for CookieDough's shadowJar
-tasks.named('compileJava') {
-    dependsOn ':CookieDough:shadowJar'
 }
 
 def targetJavaVersion = 21
