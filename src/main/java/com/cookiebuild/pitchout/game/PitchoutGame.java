@@ -316,11 +316,9 @@ public class PitchoutGame extends Game {
             if (winner != null) {
                 if (bukkitPlayer.equals(winner.getPlayer())) {
                     sendGameTitle(bukkitPlayer, "§6§lVICTORY!", "§7You are the last one standing!");
-                    bukkitPlayer.sendMessage("§aYou won the game! §e+100 XP, +25 Coins");
                 } else {
                     sendGameTitle(bukkitPlayer, "§c§lGAME OVER",
                             "§7" + winner.getPlayer().getName() + " won the game.");
-                    bukkitPlayer.sendMessage("§cYou were eliminated. §e+10 XP, +5 Coins");
                 }
             } else {
                 sendGameTitle(bukkitPlayer, "§c§lDRAW", "§7The game ended in a draw.");
