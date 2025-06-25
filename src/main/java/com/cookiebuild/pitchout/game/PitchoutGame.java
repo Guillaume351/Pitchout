@@ -31,7 +31,7 @@ import com.cookiebuild.cookiedough.model.PlayerMatchPerformance;
 import com.cookiebuild.cookiedough.player.CookiePlayer;
 import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.cookiedough.service.MatchService;
-import com.cookiebuild.cookiedough.service.MinigameStatsService;
+import com.cookiebuild.cookiedough.service.MinigameProgressionService;
 import com.cookiebuild.cookiedough.ui.CustomScoreboardManager;
 import com.cookiebuild.cookiedough.utils.HibernateUtil;
 import com.cookiebuild.cookiedough.utils.LocaleManager;
@@ -328,11 +328,11 @@ public class PitchoutGame extends Game {
         }
 
         // Reward players
-        MinigameStatsService statsService = CookieDough.createMinigameStatsService();
+        MinigameProgressionService statsService = CookieDough.createMinigameProgressionService();
         for (UUID playerId : participantPlayerData.keySet()) {
             boolean isWinner = winner != null && winner.getPlayer().getUniqueId().equals(playerId);
-            com.cookiebuild.cookiedough.model.MinigameStats stats = statsService.getOrCreateStats(playerId,
-                    MinigameStatsService.PITCHOUT);
+            com.cookiebuild.cookiedough.model.MinigameProgression stats = statsService.getOrCreateStats(playerId,
+                    MinigameProgressionService.PITCHOUT);
 
             int xpGained = isWinner ? 100 : 10;
             int coinsGained = isWinner ? 25 : 5;
