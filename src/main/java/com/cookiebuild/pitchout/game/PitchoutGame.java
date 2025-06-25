@@ -333,14 +333,44 @@ public class PitchoutGame extends Game {
             boolean isWinner = winner != null && winner.getPlayer().getUniqueId().equals(playerId);
             com.cookiebuild.cookiedough.model.MinigameStats stats = statsService.getOrCreateStats(playerId,
                     MinigameStatsService.PITCHOUT);
-            if (isWinner) {
-                stats.addExperience(100);
-                stats.addCoins(25);
-            } else {
-                stats.addExperience(10);
-                stats.addCoins(5);
-            }
+
+            int xpGained = isWinner ? 100 : 10;
+            int coinsGained = isWinner ? 25 : 5;
+
+            // Add experience to MinigameStats
+            stats.addExperience(xpGained);
             statsService.saveStats(stats);
+
+            // Add coins to PlayerData
+            com.cookiebuild.cookiedough.model.PlayerData playerData = participantPlayerData.get(playerId);
+            if (playerData != null) {
+                playerData.addCoins(coinsGained);
+
+                // Save PlayerData with coins update
+                try {
+                    gameEntityManager.getTransaction().begin();
+                    gameEntityManager.merge(playerData);
+                    gameEntityManager.getTransaction().commit();
+                } catch (Exception e) {
+                    if (gameEntityManager.getTransaction().isActive()) {
+                        gameEntityManager.getTransaction().rollback();
+                    }
+                    Pitchout.getInstance().getLogger()
+                            .severe("Failed to save player data for " + playerId + ": " + e.getMessage());
+                }
+            }
+
+            // Send reward message to player
+            Player player = Bukkit.getPlayer(playerId);
+            if (player != null && player.isOnline()) {
+                String rewardMessage;
+                if (isWinner) {
+                    rewardMessage = LocaleManager.getMessage("reward.victory", player.locale(), coinsGained, xpGained);
+                } else {
+                    rewardMessage = LocaleManager.getMessage("reward.defeat", player.locale(), coinsGained, xpGained);
+                }
+                player.sendMessage(rewardMessage);
+            }
         }
 
         // Start a countdown timer
