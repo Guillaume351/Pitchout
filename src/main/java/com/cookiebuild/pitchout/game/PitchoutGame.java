@@ -25,6 +25,7 @@ import com.cookiebuild.cookiedough.game.Game;
 import com.cookiebuild.cookiedough.game.GameManager;
 import com.cookiebuild.cookiedough.game.GameState;
 import com.cookiebuild.cookiedough.lobby.LobbyManager;
+import com.cookiebuild.cookiedough.lobby.LobbyScoreboard;
 import com.cookiebuild.cookiedough.model.Match;
 import com.cookiebuild.cookiedough.model.PlayerData;
 import com.cookiebuild.cookiedough.model.PlayerMatchPerformance;
@@ -349,6 +350,9 @@ public class PitchoutGame extends Game {
                     gameEntityManager.getTransaction().begin();
                     gameEntityManager.merge(playerData);
                     gameEntityManager.getTransaction().commit();
+
+                    // Invalidate lobby scoreboard cache for this player
+                    LobbyScoreboard.invalidatePlayerCache(playerId);
                 } catch (Exception e) {
                     if (gameEntityManager.getTransaction().isActive()) {
                         gameEntityManager.getTransaction().rollback();
