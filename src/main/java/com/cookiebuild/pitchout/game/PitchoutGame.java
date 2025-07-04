@@ -67,6 +67,11 @@ public class PitchoutGame extends Game {
     private final HashMap<UUID, Integer> playerSelfFallsThisMatch = new HashMap<>();
     // --- End New Stats and Match Tracking Fields ---
 
+    // Quick start transition tracking
+    private boolean wasInQuickStart = false;
+    private int remainingTimeAtQuickStart = 0;
+    private int ticksSinceQuickStart = 0;
+
     public PitchoutGame() {
         super("Pitchout");
         this.scoreboardManager = new CustomScoreboardManager();
@@ -171,6 +176,23 @@ public class PitchoutGame extends Game {
 
     @Override
     public void tick() {
+        // Track quick start transitions
+        if (inQuickStart && !wasInQuickStart) {
+            // Just transitioned to quick start - set timer to continue smoothly
+            int normalRemainingTime = START_DELAY_SECONDS - getStartTimer();
+            remainingTimeAtQuickStart = Math.min(normalRemainingTime, QUICK_START_DELAY_SECONDS);
+            wasInQuickStart = true;
+            ticksSinceQuickStart = 0;
+        } else if (!inQuickStart && wasInQuickStart) {
+            // Transitioned out of quick start
+            wasInQuickStart = false;
+            remainingTimeAtQuickStart = 0;
+            ticksSinceQuickStart = 0;
+        } else if (inQuickStart && wasInQuickStart) {
+            // Continue counting ticks since quick start
+            ticksSinceQuickStart++;
+        }
+
         super.tick();
         updateGameInfo();
 
@@ -182,6 +204,11 @@ public class PitchoutGame extends Game {
     @Override
     public void startGame() {
         super.startGame();
+
+        // Reset quick start tracking when game starts
+        wasInQuickStart = false;
+        remainingTimeAtQuickStart = 0;
+        ticksSinceQuickStart = 0;
 
         if (!participantPlayerData.isEmpty()) {
             this.currentMatchInstance = matchService.startMatch("Pitchout",
@@ -212,6 +239,15 @@ public class PitchoutGame extends Game {
         }
     }
 
+    @Override
+    public void resetGame() {
+        super.resetGame();
+        // Reset quick start tracking
+        wasInQuickStart = false;
+        remainingTimeAtQuickStart = 0;
+        ticksSinceQuickStart = 0;
+    }
+
     public static net.kyori.adventure.text.format.TextColor getColorForLives(int lives) {
         return switch (lives) {
             case 5 -> net.kyori.adventure.text.format.NamedTextColor.AQUA;
@@ -231,7 +267,20 @@ public class PitchoutGame extends Game {
             gameState = "game.waiting_for_players";
             if (getStartTimer() > 0) {
                 gameState = "";
-                countdownInfo = "Starting in " + (START_DELAY_SECONDS - getStartTimer()) + "s";
+                int remainingTime;
+                if (inQuickStart && wasInQuickStart) {
+                    // Use smooth transition: countdown from where we left off
+                    remainingTime = remainingTimeAtQuickStart - ticksSinceQuickStart;
+                } else if (inQuickStart) {
+                    // Normal quick start calculation (first tick of quick start)
+                    remainingTime = QUICK_START_DELAY_SECONDS - getStartTimer();
+                } else {
+                    // Normal countdown
+                    remainingTime = START_DELAY_SECONDS - getStartTimer();
+                }
+                // Ensure remaining time is never negative or zero in display
+                remainingTime = Math.max(1, remainingTime);
+                countdownInfo = "Starting in " + remainingTime + "s";
             }
         } else if (getState() == GameState.RUNNING) {
             gameState = "game.running";
