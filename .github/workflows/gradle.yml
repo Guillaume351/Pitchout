@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: Guillaume351/CookieDough
-          ref: ${{ vars.COOKIE_DOUGH_REF || 'dev' }}
+          ref: ${{ vars.COOKIE_DOUGH_REF || ((github.head_ref == 'chore/paper-26-upgrade' || github.ref_name == 'chore/paper-26-upgrade') && 'chore/paper-26-upgrade') || 'dev' }}
           path: CookieDough
 
       - name: Set up Java 25
