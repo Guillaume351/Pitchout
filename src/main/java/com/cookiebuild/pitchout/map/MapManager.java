@@ -22,12 +22,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
+import java.util.UUID;
 
 public class MapManager {
     public static InGamePlayerListener inGamePlayerListener;
     private static final Map<String, MapTemplate> mapTemplates = new HashMap<>();
     private static final Map<String, GameMap> loadedMaps = new HashMap<>();
+    private static final NextMapVote nextMapVote = new NextMapVote();
+    private static String lastSelectedMapName;
 
 
     public static void loadMapTemplates() {
@@ -224,11 +226,28 @@ public class MapManager {
         return success;
     }
 
-    public static String getRandomMapName() {
+    public record MapSelection(String mapName, boolean selectedByVote) {
+    }
+
+    public static synchronized MapSelection selectMapForNextGame() {
         if (mapTemplates.isEmpty()) {
             throw new IllegalStateException("No Pitchout map templates are configured");
         }
-        return mapTemplates.keySet().toArray(new String[0])[new Random().nextInt(mapTemplates.size())];
+        NextMapVote.Selection selection = nextMapVote.consume(
+                new ArrayList<>(mapTemplates.keySet()), lastSelectedMapName);
+        lastSelectedMapName = selection.mapName();
+        return new MapSelection(selection.mapName(), selection.selectedByVote());
+    }
+
+    public static synchronized List<String> getEligibleNextMapNames() {
+        return NextMapVote.eligibleMaps(new ArrayList<>(mapTemplates.keySet()), lastSelectedMapName);
+    }
+
+    public static synchronized String recordNextMapVote(UUID playerId, String requestedMap) {
+        if (playerId == null || requestedMap == null) {
+            return null;
+        }
+        return nextMapVote.vote(playerId, requestedMap, getEligibleNextMapNames());
     }
 
     private static File getWorldDirectory(NamespacedKey worldKey) throws IOException {

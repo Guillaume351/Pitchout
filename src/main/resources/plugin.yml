@@ -4,3 +4,7 @@ main: com.cookiebuild.pitchout.Pitchout
 api-version: '26.1.2'
 load: POSTWORLD
 depend: [CookieDough]
+commands:
+  pitchout:
+    description: Join Pitchout or vote for its next arena
+    usage: /pitchout play | /pitchout vote <map>

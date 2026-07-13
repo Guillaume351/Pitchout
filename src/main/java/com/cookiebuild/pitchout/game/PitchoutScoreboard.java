@@ -1,0 +1,86 @@
+package com.cookiebuild.pitchout.game;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+import org.bukkit.scoreboard.Criteria;
+import org.bukkit.scoreboard.DisplaySlot;
+import org.bukkit.scoreboard.Objective;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.ScoreboardManager;
+import org.bukkit.scoreboard.Team;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+
+/** Reuses one sidebar per player and stable entries so updates do not flicker. */
+final class PitchoutScoreboard {
+    private static final String[] ENTRIES = {
+            "§0", "§1", "§2", "§3", "§4", "§5", "§6", "§7",
+            "§8", "§9", "§a", "§b", "§c", "§d", "§e"
+    };
+    private static final LegacyComponentSerializer LEGACY = LegacyComponentSerializer.legacySection();
+
+    private record View(Scoreboard scoreboard, Objective objective, Team[] lines) {
+    }
+
+    private final Map<UUID, View> views = new HashMap<>();
+
+    void update(Player player, List<String> content) {
+        View view = views.computeIfAbsent(player.getUniqueId(), ignored -> createView());
+        if (view == null) {
+            return;
+        }
+        if (player.getScoreboard() != view.scoreboard()) {
+            player.setScoreboard(view.scoreboard());
+        }
+
+        for (int index = 0; index < ENTRIES.length; index++) {
+            String entry = ENTRIES[index];
+            int score = ENTRIES.length - index;
+            if (index < content.size()) {
+                view.lines()[index].prefix(LEGACY.deserialize(content.get(index)));
+                view.objective().getScore(entry).setScore(score);
+            } else {
+                view.lines()[index].prefix(Component.empty());
+                view.scoreboard().resetScores(entry);
+            }
+        }
+    }
+
+    void remove(Player player) {
+        views.remove(player.getUniqueId());
+        ScoreboardManager manager = Bukkit.getScoreboardManager();
+        if (manager != null && player.isOnline()) {
+            player.setScoreboard(manager.getNewScoreboard());
+        }
+    }
+
+    void clear() {
+        views.clear();
+    }
+
+    private static View createView() {
+        ScoreboardManager manager = Bukkit.getScoreboardManager();
+        if (manager == null) {
+            return null;
+        }
+
+        Scoreboard scoreboard = manager.getNewScoreboard();
+        Objective objective = scoreboard.registerNewObjective(
+                "pitchout", Criteria.DUMMY,
+                Component.text("Pitchout", net.kyori.adventure.text.format.NamedTextColor.GOLD));
+        objective.setDisplaySlot(DisplaySlot.SIDEBAR);
+        Team[] lines = new Team[ENTRIES.length];
+        for (int index = 0; index < ENTRIES.length; index++) {
+            Team team = scoreboard.registerNewTeam("pitchout_" + index);
+            team.addEntry(ENTRIES[index]);
+            lines[index] = team;
+        }
+        return new View(scoreboard, objective, lines);
+    }
+}

@@ -1,11 +1,11 @@
 package com.cookiebuild.pitchout.listeners;
 
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.UUID;
 
+import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
-import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.entity.Entity;
@@ -14,9 +14,13 @@ import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.projectiles.ProjectileSource;
 
 import com.cookiebuild.cookiedough.game.Game;
@@ -31,12 +35,16 @@ import net.kyori.adventure.text.Component;
 
 public class InGamePlayerListener extends BaseEventBlocker {
 
-    private final Map<Player, Player> lastHitBy = new HashMap<>();
-    private final Map<Entity, Player> projectileOwners = new HashMap<>();
-    private static final int MAX_LIVES = 5;
+    private static final long LAST_HIT_DURATION_MILLIS = 10_000L;
+    private final CombatAttributionTracker combatAttribution =
+            new CombatAttributionTracker(LAST_HIT_DURATION_MILLIS, System::currentTimeMillis);
+    private final NamespacedKey projectileOwnerKey;
+    private final NamespacedKey projectileGameKey;
 
     public InGamePlayerListener() {
         protectedWorlds = new ArrayList<>();
+        projectileOwnerKey = new NamespacedKey(Pitchout.getInstance(), "projectile_owner");
+        projectileGameKey = new NamespacedKey(Pitchout.getInstance(), "projectile_game");
     }
 
     public void addProtectedWorld(String worldName) {
@@ -49,19 +57,25 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
     private boolean isPlayerInGame(Player player) {
         CookiePlayer cookiePlayer = PlayerManager.getPlayer(player);
+        if (cookiePlayer == null || cookiePlayer.getState() != PlayerState.IN_GAME) {
+            return false;
+        }
         Game game = GameManager.getGameOfPlayer(cookiePlayer);
-        return cookiePlayer != null && cookiePlayer.getState() == PlayerState.IN_GAME && game instanceof PitchoutGame;
+        return game instanceof PitchoutGame;
     }
 
     private boolean isGameRunning(Player player) {
-        CookiePlayer cookiePlayer = PlayerManager.getPlayer(player);
-        Game game = GameManager.getGameOfPlayer(cookiePlayer);
+        PitchoutGame game = getPlayersGame(player);
         return game != null && game.hasStarted();
     }
 
     private PitchoutGame getPlayersGame(Player player) {
-        PitchoutGame game = (PitchoutGame) GameManager.getGameOfPlayer(PlayerManager.getPlayer(player));
-        return game;
+        CookiePlayer cookiePlayer = PlayerManager.getPlayer(player);
+        if (cookiePlayer == null) {
+            return null;
+        }
+        Game game = GameManager.getGameOfPlayer(cookiePlayer);
+        return game instanceof PitchoutGame pitchoutGame ? pitchoutGame : null;
     }
 
     @Override
@@ -80,29 +94,15 @@ public class InGamePlayerListener extends BaseEventBlocker {
         }
 
         if (event instanceof EntityDamageByEntityEvent damageByEntityEvent) {
-            Player damager = null;
-
-            // Check if the damager is a player
-            if (damageByEntityEvent.getDamager() instanceof Player playerDamager) {
-                damager = playerDamager;
-            }
-            // Check if the damager is a projectile
-            else if (damageByEntityEvent.getDamager() instanceof Entity projectile) {
-                // See if we have a record of who launched this projectile
-                damager = projectileOwners.get(projectile);
-                // Clean up the map entry
-                projectileOwners.remove(projectile);
-            }
-
-            if (damager != null && damager.getGameMode() != GameMode.SPECTATOR) {
-                // Log the last player who hit this player
-                Pitchout.getInstance().getLogger().info(
-                        "Player " + damager.getName() + " hit player " + player.getName());
-                lastHitBy.put(player, damager);
-                player.playSound(damager.getLocation(), Sound.ENTITY_PLAYER_HURT, 1, 1);
-                // Increment knockback count of damager
-                PitchoutGame game = getPlayersGame(player);
-                game.recordPlayerKnockback(PlayerManager.getPlayer(damager), PlayerManager.getPlayer(player));
+            PitchoutGame game = getPlayersGame(player);
+            Player damager = resolveDamager(damageByEntityEvent.getDamager(), game);
+            if (game != null && damager != null && damager.getGameMode() != GameMode.SPECTATOR) {
+                CookiePlayer attacker = PlayerManager.getPlayer(damager);
+                CookiePlayer victim = PlayerManager.getPlayer(player);
+                combatAttribution.record(
+                        player.getUniqueId(), damager.getUniqueId(), game.getGameId());
+                player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_HURT, 1, 1);
+                game.recordPlayerKnockback(attacker, victim);
             }
         }
 
@@ -116,17 +116,19 @@ public class InGamePlayerListener extends BaseEventBlocker {
         }
 
         Player player = event.getPlayer();
-        if (!isPlayerInGame(player)) {
-
+        PitchoutGame game = getPlayersGame(player);
+        if (game == null || !isPlayerInGame(player)) {
             return;
-        } else if (!isGameRunning(player)) {
-            if (player.getLocation().getY() < getPlayersGame(player).getTemplate().getWaitingAreaMinY()) {
-                player.teleport(getPlayersGame(player).getTemplate().getSpawnLocation(player.getWorld()));
+        }
+        if (!isGameRunning(player)) {
+            if (player.getLocation().getY() < game.getTemplate().getWaitingAreaMinY()) {
+                player.teleport(game.getTemplate().getSpawnLocation(player.getWorld()));
             }
+            return;
         }
 
-        if (player.getLocation().getY() < getPlayersGame(player).getTemplate().getKillY()) { // Adjust this value based
-                                                                                             // on your map
+        if (player.getGameMode() != GameMode.SPECTATOR
+                && player.getLocation().getY() < game.getTemplate().getKillY()) {
             handlePlayerFall(player);
         }
     }
@@ -138,10 +140,18 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
         if (game instanceof PitchoutGame pitchoutGame) {
             int lives = pitchoutGame.getPlayerLives(cookiePlayer);
-            Player lastHitter = lastHitBy.get(player);
-            // if life < 0, already handled
-            if (lives < 0)
+            if (lives <= 0) {
                 return;
+            }
+
+            UUID attackerId = combatAttribution.consume(player.getUniqueId(), pitchoutGame.getGameId());
+            Player lastHitter = attackerId == null ? null : Bukkit.getPlayer(attackerId);
+            if (lastHitter != null && getPlayersGame(lastHitter) != pitchoutGame) {
+                lastHitter = null;
+            }
+            if (lastHitter == null) {
+                pitchoutGame.recordSelfFall(cookiePlayer);
+            }
 
             if (lives > 1) {
                 lives--;
@@ -152,8 +162,6 @@ public class InGamePlayerListener extends BaseEventBlocker {
                             PitchoutGame.getLocalizedMessage(lastHitter, "pitchout.player_knocked", player.getName()));
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 1);
 
-                    // Increment knockback count of last hitter
-                    pitchoutGame.recordPlayerKnockback(PlayerManager.getPlayer(lastHitter), cookiePlayer);
                 }
                 player.displayName(Component.text(player.getName(), PitchoutGame.getColorForLives(lives)));
 
@@ -162,32 +170,22 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 player.sendMessage(PitchoutGame.getLocalizedMessage(player, "pitchout.player_eliminated_game"));
 
                 if (lastHitter != null) {
-                    Pitchout.getInstance().getLogger().warning("Last hitter is " + lastHitter.getName());
                     lastHitter.sendMessage(PitchoutGame.getLocalizedMessage(lastHitter, "pitchout.eliminated_player",
                             player.getName()));
                     lastHitter.playSound(lastHitter.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1, 2);
 
                     pitchoutGame.eliminatePlayer(cookiePlayer, PlayerManager.getPlayer(lastHitter));
                 } else {
-                    Pitchout.getInstance().getLogger().warning("No last hitter is " + lives);
                     pitchoutGame.eliminatePlayer(cookiePlayer, null);
                 }
                 // firework sound
                 player.getWorld().playSound(player.getLocation(), Sound.ENTITY_FIREWORK_ROCKET_BLAST, 1, 1);
             }
 
-            // Reset last hitter
-            lastHitBy.put(player, null);
-            // log the reset
-            Pitchout.getInstance().getLogger().info("Reset last hitter for player " + player.getName());
-
-            // Respawn the player
-            Location spawnLocation = pitchoutGame.getRandomSpawnLocation();
-            player.teleport(spawnLocation);
+            pitchoutGame.respawnPlayerAfterFall(cookiePlayer);
             // Add Green (villager) particles on respawn
-            player.getWorld().spawnParticle(Particle.HAPPY_VILLAGER, spawnLocation, 100, 0.1, 0.1, 0.1, 0);
-
-            player.setFallDistance(0);
+            player.getWorld().spawnParticle(
+                    Particle.HAPPY_VILLAGER, player.getLocation(), 100, 0.1, 0.1, 0.1, 0);
         }
     }
 
@@ -199,24 +197,94 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
     @Override
     protected boolean shouldAllowProjectileLaunch(ProjectileLaunchEvent event) {
-        Entity entity = event.getEntity();
-        // Only process if the launched entity is a projectile
-        if (entity instanceof Projectile) {
-            Projectile projectile = (Projectile) entity;
-            ProjectileSource shooter = projectile.getShooter();
-            // Check if the shooter is a player in a running game
-            if (shooter instanceof Player playerShooter) {
-                if (isPlayerInGame(playerShooter) && isGameRunning(playerShooter)) {
-                    // Track which player launched this projectile
-                    projectileOwners.put(projectile, playerShooter);
-                    return true;
-                }
+        Projectile projectile = event.getEntity();
+        ProjectileSource shooter = projectile.getShooter();
+        if (shooter instanceof Player playerShooter) {
+            PitchoutGame game = getPlayersGame(playerShooter);
+            if (game != null && game.hasStarted() && isPlayerInGame(playerShooter)) {
+                projectile.getPersistentDataContainer().set(
+                        projectileOwnerKey, PersistentDataType.STRING, playerShooter.getUniqueId().toString());
+                projectile.getPersistentDataContainer().set(
+                        projectileGameKey, PersistentDataType.STRING, game.getGameId().toString());
+                return true;
             }
-            return false;
         }
-        // Allow non-projectile entities by default
-        return true;
+        return false;
     }
 
-    // Add other necessary event handlers and methods as needed
+    @EventHandler
+    public void onProjectileHit(ProjectileHitEvent event) {
+        Projectile projectile = event.getEntity();
+        if (projectile.getPersistentDataContainer().has(projectileGameKey, PersistentDataType.STRING)) {
+            Bukkit.getScheduler().runTask(Pitchout.getInstance(), projectile::remove);
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        combatAttribution.removePlayer(player.getUniqueId());
+        // CookieDough's quit listener may already have removed the PlayerManager entry.
+        // Resolve from each game's own roster so spectators are never retained.
+        for (Game game : GameManager.getGames()) {
+            if (!(game instanceof PitchoutGame pitchoutGame)) {
+                continue;
+            }
+            CookiePlayer trackedPlayer = pitchoutGame.getPlayers().stream()
+                    .filter(candidate -> candidate.getPlayer().getUniqueId().equals(player.getUniqueId()))
+                    .findFirst()
+                    .orElse(null);
+            if (trackedPlayer != null) {
+                pitchoutGame.removePlayer(trackedPlayer);
+                break;
+            }
+        }
+    }
+
+    @EventHandler
+    public void onQuickPlayInteract(PlayerInteractEvent event) {
+        if ((event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK)
+                || !Pitchout.isReplayHook(event.getItem())) {
+            return;
+        }
+        event.setCancelled(true);
+        Pitchout.joinOpenGame(event.getPlayer());
+    }
+
+    public void clearGameState(UUID gameId) {
+        combatAttribution.clearGame(gameId);
+    }
+
+    private Player resolveDamager(Entity entity, PitchoutGame victimGame) {
+        Player damager = null;
+        UUID projectileGameId = null;
+        if (entity instanceof Player player) {
+            damager = player;
+        } else if (entity instanceof Projectile projectile) {
+            String ownerValue = projectile.getPersistentDataContainer().get(
+                    projectileOwnerKey, PersistentDataType.STRING);
+            String gameValue = projectile.getPersistentDataContainer().get(
+                    projectileGameKey, PersistentDataType.STRING);
+            try {
+                if (ownerValue != null) {
+                    damager = Bukkit.getPlayer(UUID.fromString(ownerValue));
+                }
+                if (gameValue != null) {
+                    projectileGameId = UUID.fromString(gameValue);
+                }
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
+            if (damager == null && projectile.getShooter() instanceof Player player) {
+                damager = player;
+            }
+        }
+
+        if (damager == null || victimGame == null
+                || (projectileGameId != null && !projectileGameId.equals(victimGame.getGameId()))
+                || getPlayersGame(damager) != victimGame) {
+            return null;
+        }
+        return damager;
+    }
 }

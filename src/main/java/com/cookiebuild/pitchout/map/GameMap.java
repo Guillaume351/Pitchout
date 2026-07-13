@@ -34,8 +34,11 @@ public class GameMap {
     }
 
     public Location getRandomSpawnLocation() {
-        int numSpawns = template.getSpawnCount();
         List<Location> spawnLocations = template.getSpawnLocations(world);
-        return spawnLocations.get(new java.util.Random().nextInt(numSpawns));
+        return spawnLocations.get(java.util.concurrent.ThreadLocalRandom.current().nextInt(spawnLocations.size()));
+    }
+
+    public List<Location> getSpawnLocations() {
+        return template.getSpawnLocations(world);
     }
 }
