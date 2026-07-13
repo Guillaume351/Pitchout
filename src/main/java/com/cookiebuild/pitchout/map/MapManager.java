@@ -101,7 +101,6 @@ public class MapManager {
             throw new IOException("Unzipped world folder does not exist: " + gameMapDir.getAbsolutePath());
         }
 
-        String worldName = game.getGameId().toString();
         World world = new WorldCreator(gameMapDir.getPath())
                 .environment(World.Environment.NORMAL)
                 .generateStructures(false)
@@ -109,17 +108,13 @@ public class MapManager {
                 .createWorld();
 
         if (world == null) {
-            throw new IOException("Failed to create world: " + worldName);
+            throw new IOException("Failed to create world: " + gameMapDir.getPath());
         }
 
         CookieDough.getInstance().getLogger().info("Created world " + world.getName() + " based on map " + mapName);
         world.setAutoSave(false);
         world.setThundering(false);
         world.setGameRuleValue("announceAdvancements", "false");
-
-        // Copy map data to the newly created world
-        File worldFolder = world.getWorldFolder();
-        FileUtils.copyDirectory(gameMapDir, worldFolder);
 
         // Create the game map with the world loaded
         GameMap gameMap = new GameMap(game,template, world);
@@ -140,16 +135,20 @@ public class MapManager {
         GameMap gameMap = loadedMaps.remove(gameUUID);
         if (gameMap != null) {
             World world = gameMap.getWorld();
+            File worldFolder = world != null ? world.getWorldFolder() : new File("game_maps", gameUUID);
             if (world != null) {
                 Bukkit.unloadWorld(world, false);
             }
-            File worldFolder = new File("game_maps", gameUUID);
             try {
                 FileUtils.deleteDirectory(worldFolder);
+                File legacyWorldFolder = new File("game_maps", gameUUID);
+                if (!legacyWorldFolder.equals(worldFolder)) {
+                    FileUtils.deleteDirectory(legacyWorldFolder);
+                }
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
-            if (inGamePlayerListener != null) {
+            if (inGamePlayerListener != null && world != null) {
                 inGamePlayerListener.removeProtectedWorld(world.getName());
             }
         }
