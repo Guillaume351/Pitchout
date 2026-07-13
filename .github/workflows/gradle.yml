@@ -1,0 +1,37 @@
+name: Gradle build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Pitchout
+        uses: actions/checkout@v6
+        with:
+          path: Pitchout
+
+      - name: Check out CookieDough
+        uses: actions/checkout@v6
+        with:
+          repository: Guillaume351/CookieDough
+          ref: ${{ vars.COOKIE_DOUGH_REF || 'dev' }}
+          path: CookieDough
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build Pitchout
+        working-directory: Pitchout
+        run: ./gradlew build --no-daemon

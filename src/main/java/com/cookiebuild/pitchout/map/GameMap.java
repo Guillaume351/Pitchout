@@ -7,9 +7,9 @@ import org.bukkit.World;
 import java.util.List;
 
 public class GameMap {
-    private PitchoutGame game;
-    private MapTemplate template;
-    private World world;
+    private final PitchoutGame game;
+    private final MapTemplate template;
+    private final World world;
 
     public GameMap(PitchoutGame game, MapTemplate template, World world) {
         this.game = game;

@@ -3,6 +3,7 @@ package com.cookiebuild.pitchout;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import com.cookiebuild.cookiedough.game.Game;
 import com.cookiebuild.cookiedough.game.GameManager;
 import com.cookiebuild.pitchout.game.PitchoutGame;
 import com.cookiebuild.pitchout.listeners.InGamePlayerListener;
@@ -42,7 +43,14 @@ public final class Pitchout extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // Plugin shutdown logic
+        for (Game game : new java.util.ArrayList<>(GameManager.getGames())) {
+            if (game instanceof PitchoutGame pitchoutGame) {
+                pitchoutGame.shutdown();
+            }
+        }
+        if (!MapManager.unloadAllMaps()) {
+            this.getLogger().warning("Some Pitchout map directories could not be cleaned up during shutdown");
+        }
         this.getLogger().info("Pitchout plugin disabled!");
     }
 }

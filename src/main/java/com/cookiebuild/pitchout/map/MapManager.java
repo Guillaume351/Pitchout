@@ -7,6 +7,8 @@ import com.cookiebuild.pitchout.Pitchout;
 import com.cookiebuild.pitchout.game.PitchoutGame;
 import com.cookiebuild.pitchout.listeners.InGamePlayerListener;
 import org.bukkit.Bukkit;
+import org.bukkit.GameRules;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
 import org.bukkit.configuration.ConfigurationSection;
@@ -14,7 +16,13 @@ import org.bukkit.generator.ChunkGenerator;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 
 public class MapManager {
     public static InGamePlayerListener inGamePlayerListener;
@@ -94,27 +102,67 @@ public class MapManager {
         }
 
         File zippedMap = new File("pitchout_maps", mapName + ".zip");
-        File gameMapDir = new File("game_maps", game.getGameId().toString());
-        ZipUtils.unzip(zippedMap, gameMapDir);
+        if (!zippedMap.isFile()) {
+            throw new IOException("Map archive does not exist: " + zippedMap.getAbsolutePath());
+        }
+
+        NamespacedKey worldKey = new NamespacedKey(Pitchout.getInstance(), game.getGameId().toString());
+        if (Bukkit.getWorld(worldKey) != null) {
+            throw new IOException("World is already loaded: " + worldKey);
+        }
+
+        File gameMapDir = getWorldDirectory(worldKey);
+        if (gameMapDir.exists()) {
+            FileUtils.deleteDirectory(gameMapDir);
+        }
+        try {
+            ZipUtils.unzip(zippedMap, gameMapDir);
+            removeTransientWorldFiles(gameMapDir.toPath());
+        } catch (IOException exception) {
+            if (gameMapDir.exists()) {
+                FileUtils.deleteDirectory(gameMapDir);
+            }
+            throw exception;
+        }
 
         if (!gameMapDir.exists()) {
             throw new IOException("Unzipped world folder does not exist: " + gameMapDir.getAbsolutePath());
         }
 
-        World world = new WorldCreator(gameMapDir.getPath())
-                .environment(World.Environment.NORMAL)
-                .generateStructures(false)
-                .generator(new VoidChunkGenerator())
-                .createWorld();
-
-        if (world == null) {
-            throw new IOException("Failed to create world: " + gameMapDir.getPath());
+        World world;
+        try {
+            world = WorldCreator.ofKey(worldKey)
+                    .environment(World.Environment.NORMAL)
+                    .generateStructures(false)
+                    .generator(new VoidChunkGenerator())
+                    .createWorld();
+        } catch (RuntimeException exception) {
+            if (Bukkit.getWorld(worldKey) == null) {
+                FileUtils.deleteDirectory(gameMapDir);
+            }
+            throw new IOException("Failed to create world: " + worldKey, exception);
         }
 
-        CookieDough.getInstance().getLogger().info("Created world " + world.getName() + " based on map " + mapName);
+        if (world == null) {
+            FileUtils.deleteDirectory(gameMapDir);
+            throw new IOException("Failed to create world: " + worldKey);
+        }
+
+        Path expectedWorldFolder = gameMapDir.toPath().toAbsolutePath().normalize();
+        Path actualWorldFolder = world.getWorldFolder().toPath().toAbsolutePath().normalize();
+        if (!actualWorldFolder.equals(expectedWorldFolder)) {
+            if (Bukkit.unloadWorld(world, false)) {
+                FileUtils.deleteDirectory(actualWorldFolder.toFile());
+            }
+            FileUtils.deleteDirectory(expectedWorldFolder.toFile());
+            throw new IOException("Paper resolved world " + worldKey + " to " + actualWorldFolder
+                    + " instead of the prepared template directory " + expectedWorldFolder);
+        }
+
+        CookieDough.getInstance().getLogger().info("Created world " + worldKey + " based on map " + mapName);
         world.setAutoSave(false);
         world.setThundering(false);
-        world.setGameRuleValue("announceAdvancements", "false");
+        world.setGameRule(GameRules.SHOW_ADVANCEMENT_MESSAGES, false);
 
         // Create the game map with the world loaded
         GameMap gameMap = new GameMap(game,template, world);
@@ -131,37 +179,82 @@ public class MapManager {
         return loadedMaps.get(gameUUID);
     }
 
-    public static void unloadMap(String gameUUID) {
-        GameMap gameMap = loadedMaps.remove(gameUUID);
-        if (gameMap != null) {
-            World world = gameMap.getWorld();
-            File worldFolder = world != null ? world.getWorldFolder() : new File("game_maps", gameUUID);
-            if (world != null) {
-                Bukkit.unloadWorld(world, false);
+    public static boolean unloadMap(String gameUUID) {
+        GameMap gameMap = loadedMaps.get(gameUUID);
+        if (gameMap == null) {
+            return true;
+        }
+
+        World world = gameMap.getWorld();
+        File worldFolder = world.getWorldFolder();
+        World loadedWorld = Bukkit.getWorld(world.getKey());
+        if (loadedWorld != null) {
+            if (!loadedWorld.getPlayers().isEmpty()) {
+                Pitchout.getInstance().getLogger().warning("Cannot unload " + world.getKey()
+                        + ": " + loadedWorld.getPlayers().size() + " player(s) are still inside");
+                return false;
             }
-            try {
-                FileUtils.deleteDirectory(worldFolder);
-                File legacyWorldFolder = new File("game_maps", gameUUID);
-                if (!legacyWorldFolder.equals(worldFolder)) {
-                    FileUtils.deleteDirectory(legacyWorldFolder);
-                }
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-            if (inGamePlayerListener != null && world != null) {
-                inGamePlayerListener.removeProtectedWorld(world.getName());
+            if (!Bukkit.unloadWorld(loadedWorld, false)) {
+                Pitchout.getInstance().getLogger().warning("Paper refused to unload world " + world.getKey());
+                return false;
             }
         }
+
+        if (inGamePlayerListener != null) {
+            inGamePlayerListener.removeProtectedWorld(world.getName());
+        }
+
+        try {
+            FileUtils.deleteDirectory(worldFolder);
+        } catch (IOException e) {
+            Pitchout.getInstance().getLogger().severe("Failed to delete world directory "
+                    + worldFolder.getAbsolutePath() + ": " + e.getMessage());
+            return false;
+        }
+
+        loadedMaps.remove(gameUUID, gameMap);
+        return true;
+    }
+
+    public static boolean unloadAllMaps() {
+        boolean success = true;
+        for (String gameUUID : new ArrayList<>(loadedMaps.keySet())) {
+            success &= unloadMap(gameUUID);
+        }
+        return success;
     }
 
     public static String getRandomMapName() {
+        if (mapTemplates.isEmpty()) {
+            throw new IllegalStateException("No Pitchout map templates are configured");
+        }
         return mapTemplates.keySet().toArray(new String[0])[new Random().nextInt(mapTemplates.size())];
     }
 
-    private static class VoidChunkGenerator extends ChunkGenerator {
-        @Override
-        public ChunkData generateChunkData(World world, Random random, int x, int z, BiomeGrid biome) {
-            return createChunkData(world);
+    private static File getWorldDirectory(NamespacedKey worldKey) throws IOException {
+        World overworld = Bukkit.getWorld(NamespacedKey.minecraft("overworld"));
+        if (overworld == null) {
+            throw new IOException("The minecraft:overworld world must be loaded before Pitchout maps");
         }
+
+        Path overworldFolder = overworld.getWorldFolder().toPath().toAbsolutePath().normalize();
+        Path keyedOverworldSuffix = Path.of("dimensions", "minecraft", "overworld");
+        Path levelFolder = overworldFolder;
+        if (overworldFolder.endsWith(keyedOverworldSuffix)) {
+            levelFolder = overworldFolder.getParent().getParent().getParent();
+        }
+
+        return levelFolder.resolve("dimensions")
+                .resolve(worldKey.getNamespace())
+                .resolve(worldKey.getKey())
+                .toFile();
+    }
+
+    private static void removeTransientWorldFiles(Path worldDirectory) throws IOException {
+        Files.deleteIfExists(worldDirectory.resolve("session.lock"));
+        Files.deleteIfExists(worldDirectory.resolve("uid.dat"));
+    }
+
+    private static final class VoidChunkGenerator extends ChunkGenerator {
     }
 }

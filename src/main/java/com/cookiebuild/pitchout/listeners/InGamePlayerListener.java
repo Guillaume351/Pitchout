@@ -27,6 +27,7 @@ import com.cookiebuild.cookiedough.player.PlayerManager;
 import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.pitchout.Pitchout;
 import com.cookiebuild.pitchout.game.PitchoutGame;
+import net.kyori.adventure.text.Component;
 
 public class InGamePlayerListener extends BaseEventBlocker {
 
@@ -154,7 +155,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
                     // Increment knockback count of last hitter
                     pitchoutGame.recordPlayerKnockback(PlayerManager.getPlayer(lastHitter), cookiePlayer);
                 }
-                player.setDisplayName(PitchoutGame.getColorForLives(lives) + " " + player.getName());
+                player.displayName(Component.text(player.getName(), PitchoutGame.getColorForLives(lives)));
 
             } else {
 

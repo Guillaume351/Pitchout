@@ -18,6 +18,7 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.scheduler.BukkitTask;
 
 import com.cookiebuild.cookiedough.CookieDough;
 import com.cookiebuild.cookiedough.dao.GenericDAOImpl;
@@ -51,6 +52,8 @@ public class PitchoutGame extends Game {
     private GameMap map;
     private final HashMap<CookiePlayer, Integer> playerLives = new HashMap<>();
     private final CustomScoreboardManager scoreboardManager;
+    private BukkitTask endSequenceTask;
+    private boolean cleanupStarted;
 
     // --- New Stats and Match Tracking Fields ---
     private EntityManager gameEntityManager;
@@ -122,9 +125,9 @@ public class PitchoutGame extends Game {
     @Override
     protected void teleportToGame(CookiePlayer player) {
         Location spawnLocation = map.getRandomSpawnLocation();
-        World gameWorld = Bukkit.getWorld("game_maps/" + this.getGameId().toString());
+        World gameWorld = map.getWorld();
 
-        if (gameWorld == null) {
+        if (Bukkit.getWorld(gameWorld.getKey()) == null) {
             player.getPlayer()
                     .sendMessage(LocaleManager.getMessage("pitchout.world_not_loaded", player.getPlayer().locale()));
             return;
@@ -426,7 +429,7 @@ public class PitchoutGame extends Game {
 
         // Start a countdown timer
         int teleportDelay = 10; // 10 seconds delay
-        new BukkitRunnable() {
+        endSequenceTask = new BukkitRunnable() {
             int timeLeft = teleportDelay;
 
             @Override
@@ -448,27 +451,61 @@ public class PitchoutGame extends Game {
                     }
                     timeLeft--;
                 } else {
-                    for (UUID playerId : participantPlayerData.keySet()) {
-                        Player p = Bukkit.getPlayer(playerId);
-                        if (p != null && p.isOnline()) {
-                            CookiePlayer cp = com.cookiebuild.cookiedough.player.PlayerManager.getPlayer(p);
-                            if (cp != null)
-                                LobbyManager.teleportPlayerToLobby(cp);
-                        }
-                    }
-                    // remove all players from the game - this is already handled by
-                    // super.removePlayer on disconnect/leave
-                    // and players are cleared from `getPlayers()` list by `GameManager.removeGame`
-                    GameManager.removeGame(PitchoutGame.this);
-                    if (gameEntityManager != null && gameEntityManager.isOpen()) {
-                        gameEntityManager.close();
-                        Pitchout.getInstance().getLogger()
-                                .info("GameEntityManager closed for Pitchout game: " + getGameId());
-                    }
-                    this.cancel(); // Cancel the BukkitRunnable
+                    cleanupGameResources();
                 }
             }
         }.runTaskTimer(Pitchout.getInstance(), 0L, 20L); // Run every second
+    }
+
+    public void shutdown() {
+        setState(GameState.FINISHED);
+        cleanupGameResources();
+    }
+
+    private void cleanupGameResources() {
+        if (cleanupStarted) {
+            return;
+        }
+        cleanupStarted = true;
+
+        if (endSequenceTask != null) {
+            endSequenceTask.cancel();
+            endSequenceTask = null;
+        }
+
+        drainPlayersFromWorld();
+
+        if (map != null && !MapManager.unloadMap(getGameId().toString())) {
+            Pitchout.getInstance().getLogger().warning(
+                    "Pitchout map cleanup remains pending for game " + getGameId());
+        }
+
+        GameManager.removeGame(this);
+        closeEntityManager();
+    }
+
+    private void drainPlayersFromWorld() {
+        World fallbackWorld = Bukkit.getWorld(org.bukkit.NamespacedKey.minecraft("overworld"));
+        for (CookiePlayer cookiePlayer : getPlayers()) {
+            Player player = cookiePlayer.getPlayer();
+            if (player.isOnline()) {
+                LobbyManager.teleportPlayerToLobby(cookiePlayer);
+                if (map != null && player.getWorld().equals(map.getWorld()) && fallbackWorld != null) {
+                    player.teleport(fallbackWorld.getSpawnLocation());
+                }
+            }
+            if (getPlayers().contains(cookiePlayer)) {
+                removePlayer(cookiePlayer);
+            }
+        }
+    }
+
+    private void closeEntityManager() {
+        if (gameEntityManager != null && gameEntityManager.isOpen()) {
+            gameEntityManager.close();
+            Pitchout.getInstance().getLogger()
+                    .info("GameEntityManager closed for Pitchout game: " + getGameId());
+        }
     }
 
     @Override
