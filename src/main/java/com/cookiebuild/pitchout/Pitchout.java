@@ -32,7 +32,7 @@ public final class Pitchout extends JavaPlugin {
         // Initialize maps
         this.getLogger().info("Pitchout plugin enabled!");
 
-        saveResource("config.yml", false);
+        saveDefaultConfig();
 
         MapManager.loadMapTemplates();
         MapManager.inGamePlayerListener = new InGamePlayerListener();
