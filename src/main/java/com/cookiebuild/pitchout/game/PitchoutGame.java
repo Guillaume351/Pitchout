@@ -269,14 +269,14 @@ public class PitchoutGame extends Game {
 
     private void updateGameInfo() {
         String gameState;
-        String countdownInfo = "";
+        Integer countdownSeconds = null;
 
         if (getState() == GameState.OPEN) {
             gameState = "game.waiting_for_players";
             if (getStartTimer() > 0) {
                 int delay = inQuickStart ? QUICK_START_DELAY_SECONDS : START_DELAY_SECONDS;
-                int remainingTime = Math.max(1, delay - getStartTimer());
-                countdownInfo = " • " + remainingTime + "s";
+                countdownSeconds = Math.max(1, delay - getStartTimer());
+                gameState = "game.starting_in";
             }
         } else if (getState() == GameState.RUNNING) {
             gameState = "game.running";
@@ -287,13 +287,15 @@ public class PitchoutGame extends Game {
         for (CookiePlayer player : getPlayers()) {
             Player bukkitPlayer = player.getPlayer();
             boolean isSpectator = bukkitPlayer.getGameMode() == GameMode.SPECTATOR;
-            String localizedState = LocaleManager.getMessage(gameState, player.getPlayer().locale());
+            String localizedState = countdownSeconds == null
+                    ? LocaleManager.getMessage(gameState, bukkitPlayer.locale())
+                    : LocaleManager.getMessage(gameState, bukkitPlayer.locale(), countdownSeconds);
 
-            bukkitPlayer.sendActionBar(Component.text(localizedState + countdownInfo, NamedTextColor.YELLOW));
+            bukkitPlayer.sendActionBar(Component.text(localizedState, NamedTextColor.YELLOW));
 
             List<String> lines = new ArrayList<>();
             lines.add("§6Game State:");
-            lines.add("§f" + localizedState + countdownInfo);
+            lines.add("§f" + localizedState);
             lines.add("§6Map: §f" + map.getTemplate().getName());
             lines.add(" ");
             lines.add(isSpectator ? "§7Spectating" : "§6Players:");
