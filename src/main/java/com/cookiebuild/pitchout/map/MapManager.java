@@ -6,6 +6,8 @@ import com.cookiebuild.cookiedough.utils.ZipUtils;
 import com.cookiebuild.pitchout.Pitchout;
 import com.cookiebuild.pitchout.game.PitchoutGame;
 import com.cookiebuild.pitchout.listeners.InGamePlayerListener;
+import io.papermc.paper.math.Position;
+import net.kyori.adventure.util.TriState;
 import org.bukkit.Bukkit;
 import org.bukkit.GameRules;
 import org.bukkit.NamespacedKey;
@@ -133,9 +135,19 @@ public class MapManager {
 
         World world;
         try {
+            org.bukkit.Location forcedSpawn = template.getSpawnLocation(null);
             world = WorldCreator.ofKey(worldKey)
                     .environment(World.Environment.NORMAL)
                     .generateStructures(false)
+                    // Legacy Pitchout archives do not consistently contain a
+                    // usable SpawnX/Y/Z. Avoid Paper's synchronous safe-spawn scan.
+                    .forcedSpawnPosition(Position.block(
+                            forcedSpawn.getBlockX(), forcedSpawn.getBlockY(), forcedSpawn.getBlockZ()),
+                            forcedSpawn.getYaw(), forcedSpawn.getPitch())
+                    // Match spawn chunks are loaded explicitly before player teleports.
+                    // Paper's generic spawn preparation otherwise blocks the server
+                    // thread for several seconds for every arena world.
+                    .keepSpawnLoaded(TriState.FALSE)
                     .generator(new VoidChunkGenerator())
                     .createWorld();
         } catch (RuntimeException exception) {
