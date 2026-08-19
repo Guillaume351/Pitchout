@@ -8,13 +8,20 @@ import java.util.stream.Collectors;
 
 public class MapTemplate {
     private final String name;
+    private final String displayName;
     private final List<Double> waitingSpawn;
     private final List<List<Double>> spawnCoordinates;
     private final int knockbackStrength;
 
 
     public MapTemplate(String name, List<List<Double>> spawnCoordinates, List<Double> waitingSpawn, int knockbackStrength) {
+        this(name, name, spawnCoordinates, waitingSpawn, knockbackStrength);
+    }
+
+    public MapTemplate(String name, String displayName, List<List<Double>> spawnCoordinates,
+            List<Double> waitingSpawn, int knockbackStrength) {
         this.name = name;
+        this.displayName = displayName == null || displayName.isBlank() ? name : displayName;
         this.spawnCoordinates = spawnCoordinates;
         this.waitingSpawn = waitingSpawn;
         this.knockbackStrength = knockbackStrength;
@@ -22,6 +29,10 @@ public class MapTemplate {
 
     public String getName() {
         return name;
+    }
+
+    public String getDisplayName() {
+        return displayName;
     }
 
     public List<Location> getSpawnLocations(World world) {

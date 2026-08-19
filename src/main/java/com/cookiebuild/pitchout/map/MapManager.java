@@ -95,7 +95,9 @@ public class MapManager {
 
         int knockbackStrength = Pitchout.getInstance().getConfig().getInt("maps." + mapName + ".knockback-strength");
 
-        return new MapTemplate(mapName, spawnCoordinates, waitingSpawn, knockbackStrength);
+        String displayName = Pitchout.getInstance().getConfig().getString(
+                "maps." + mapName + ".display-name", MapDisplayNames.fallback(mapName));
+        return new MapTemplate(mapName, displayName, spawnCoordinates, waitingSpawn, knockbackStrength);
     }
 
     public static GameMap loadMapForGame(PitchoutGame game, String mapName) throws IOException {
@@ -248,6 +250,11 @@ public class MapManager {
 
     public static synchronized List<String> getEligibleNextMapNames() {
         return NextMapVote.eligibleMaps(new ArrayList<>(mapTemplates.keySet()), lastSelectedMapName);
+    }
+
+    public static synchronized String getDisplayName(String mapName) {
+        MapTemplate template = mapTemplates.get(mapName);
+        return template == null ? MapDisplayNames.fallback(mapName) : template.getDisplayName();
     }
 
     public static synchronized String recordNextMapVote(UUID playerId, String requestedMap) {

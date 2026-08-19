@@ -1,5 +1,6 @@
 maps:
   pitchout1:
+    display-name: Cookie Circuit
     waiting-spawn: [ 6.5, 97, 9.5, 0 ]
     knockback-strength: 5
     spawns:
@@ -12,6 +13,7 @@ maps:
       - [ 6.5, 64, 36.5, 0 ]
       - [ -12.5, 64, 28.5, 0 ]
   pitchout2:
+    display-name: Four Corners
     waiting-spawn: [ -1.5, 30, -2.5, 0 ]
     knockback-strength: 10
     spawns:
@@ -36,6 +38,7 @@ maps:
       - [ -13.5, 23, 37.5, -90 ]
       - [ -1.5, 23, 28.5, 0 ]
   frozen:
+    display-name: Frostbite
     waiting-spawn: [ 0.5, 69, -65.5, 0 ]
     knockback-strength: 10
     spawns:

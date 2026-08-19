@@ -157,12 +157,14 @@ public final class Pitchout extends JavaPlugin {
             return;
         }
         Component prompt = Component.text(
-                message(player, "pitchout.vote.prompt", String.join(", ", maps)) + " ",
+                message(player, "pitchout.vote.prompt", maps.stream()
+                        .map(MapManager::getDisplayName).collect(java.util.stream.Collectors.joining(", "))) + " ",
                 NamedTextColor.YELLOW);
         for (String mapName : maps) {
-            prompt = prompt.append(Component.text("[" + mapName + "] ", NamedTextColor.AQUA)
+            String displayName = MapManager.getDisplayName(mapName);
+            prompt = prompt.append(Component.text("[" + displayName + "] ", NamedTextColor.AQUA)
                     .clickEvent(ClickEvent.runCommand("/pitchout vote " + mapName))
-                    .hoverEvent(HoverEvent.showText(Component.text("Vote for " + mapName))));
+                    .hoverEvent(HoverEvent.showText(Component.text("Vote for " + displayName))));
         }
         player.sendMessage(prompt);
     }
@@ -172,7 +174,7 @@ public final class Pitchout extends JavaPlugin {
             CookiePlayer cookiePlayer = PlayerManager.getPlayer(player);
             if (cookiePlayer != null && GameManager.getGameOfPlayer(cookiePlayer) instanceof PitchoutGame) {
                 player.sendMessage(Component.text(
-                        message(player, "pitchout.vote.winner", mapName), NamedTextColor.GREEN));
+                        message(player, "pitchout.vote.winner", MapManager.getDisplayName(mapName)), NamedTextColor.GREEN));
             }
         }
     }
@@ -188,11 +190,12 @@ public final class Pitchout extends JavaPlugin {
             player.sendMessage(Component.text(message(
                     player,
                     "pitchout.vote.invalid_map",
-                    String.join(", ", MapManager.getEligibleNextMapNames())), NamedTextColor.RED));
+                    MapManager.getEligibleNextMapNames().stream().map(MapManager::getDisplayName)
+                            .collect(java.util.stream.Collectors.joining(", "))), NamedTextColor.RED));
             return;
         }
         player.sendMessage(Component.text(
-                message(player, "pitchout.vote.recorded", selectedMap), NamedTextColor.GREEN));
+                message(player, "pitchout.vote.recorded", MapManager.getDisplayName(selectedMap)), NamedTextColor.GREEN));
     }
 
     public static String message(Player player, String key, Object... arguments) {

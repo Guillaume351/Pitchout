@@ -296,7 +296,7 @@ public class PitchoutGame extends Game {
             List<String> lines = new ArrayList<>();
             lines.add("§6Game State:");
             lines.add("§f" + localizedState);
-            lines.add("§6Map: §f" + map.getTemplate().getName());
+            lines.add("§6Map: §f" + map.getTemplate().getDisplayName());
             lines.add(" ");
             lines.add(isSpectator ? "§7Spectating" : "§6Players:");
             for (CookiePlayer p : getPlayers()) {

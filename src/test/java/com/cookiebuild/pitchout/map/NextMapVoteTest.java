@@ -12,6 +12,14 @@ import org.junit.jupiter.api.Test;
 
 class NextMapVoteTest {
     @Test
+    void legacyProductionConfigsStillReceivePublicMapNames() {
+        assertEquals("Cookie Circuit", MapDisplayNames.fallback("pitchout1"));
+        assertEquals("Four Corners", MapDisplayNames.fallback("pitchout2"));
+        assertEquals("Frostbite", MapDisplayNames.fallback("frozen"));
+        assertEquals("community-map", MapDisplayNames.fallback("community-map"));
+    }
+
+    @Test
     void consumesWinningEligibleVoteAndClearsTheTally() {
         NextMapVote vote = new NextMapVote();
         List<String> eligible = NextMapVote.eligibleMaps(List.of("frozen", "pitchout1", "pitchout2"), "frozen");
