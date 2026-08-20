@@ -1,14 +1,17 @@
 package com.cookiebuild.pitchout.game;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
@@ -31,28 +34,16 @@ import com.cookiebuild.cookiedough.game.GameManager;
 import com.cookiebuild.cookiedough.game.GameState;
 import com.cookiebuild.cookiedough.lobby.LobbyManager;
 import com.cookiebuild.cookiedough.lobby.LobbyScoreboard;
-import com.cookiebuild.cookiedough.model.CoinTransaction;
 import com.cookiebuild.cookiedough.model.Match;
-import com.cookiebuild.cookiedough.model.MinigameProgression;
-import com.cookiebuild.cookiedough.model.MinigameProgressionId;
-import com.cookiebuild.cookiedough.model.PlayerData;
-import com.cookiebuild.cookiedough.model.PlayerMatchPerformance;
 import com.cookiebuild.cookiedough.player.CookiePlayer;
 import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.cookiedough.service.MatchService;
 import com.cookiebuild.cookiedough.service.MinigameProgressionService;
-import com.cookiebuild.cookiedough.utils.HibernateUtil;
 import com.cookiebuild.cookiedough.utils.LocaleManager;
 import com.cookiebuild.pitchout.Pitchout;
 import com.cookiebuild.pitchout.map.GameMap;
 import com.cookiebuild.pitchout.map.MapManager;
 import com.cookiebuild.pitchout.map.MapTemplate;
-import com.google.gson.JsonObject;
-
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityTransaction;
-import jakarta.persistence.LockModeType;
-import jakarta.persistence.TypedQuery;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -68,42 +59,28 @@ public class PitchoutGame extends Game {
     private BukkitTask endSequenceTask;
     private boolean cleanupStarted;
     private boolean outcomePersisted;
-    private boolean outcomePersistenceRequested;
-    private CookiePlayer pendingWinner;
+    private boolean timedOut;
 
-    // --- New Stats and Match Tracking Fields ---
-    private EntityManager gameEntityManager;
-    private MatchService matchService;
-    private Match currentMatchInstance;
-    private final HashMap<UUID, PlayerData> participantPlayerData = new HashMap<>();
-    // --- End New Stats and Match Tracking Fields ---
+    private final MatchService matchService = new MatchService(null);
+    private final MinigameProgressionService progressionService = new MinigameProgressionService(null);
+    private final Set<UUID> participantIds = new LinkedHashSet<>();
+    private CompletableFuture<Match> matchFuture = CompletableFuture.completedFuture(null);
+    private int runningSeconds;
+    private final int maximumRunningSeconds;
+    private boolean timeoutWarningSent;
 
-    public PitchoutGame() {
-        super("Pitchout");
+    public PitchoutGame(UUID gameId, GameMap preparedMap) {
+        super("Pitchout", gameId);
 
-        // Initialize EntityManager and services
-        this.gameEntityManager = HibernateUtil.createEntityManager();
-        this.matchService = new MatchService(this.gameEntityManager);
+        this.maximumRunningSeconds = Math.max(60,
+                Pitchout.getInstance().getConfig().getInt("game.maximum-running-seconds", 360));
 
-        Bukkit.getScheduler().runTask(Pitchout.getInstance(), () -> {
-            try {
-                MapManager.MapSelection mapSelection = MapManager.selectMapForNextGame();
-                map = MapManager.loadMapForGame(this, mapSelection.mapName());
-                if (mapSelection.selectedByVote()) {
-                    Pitchout.announceMapVoteWinner(mapSelection.mapName());
-                }
-            } catch (IOException | RuntimeException e) {
-                Pitchout.getInstance().getLogger().severe(
-                        "Could not prepare Pitchout game " + getGameId() + ": " + e.getMessage());
-                setState(GameState.FINISHED);
-                cleanupGameResources();
-            }
-        });
+        map = java.util.Objects.requireNonNull(preparedMap, "preparedMap");
     }
 
     @Override
     public void registerANewGame() {
-        GameManager.addGame(new PitchoutGame());
+        Pitchout.activateNextGame();
     }
 
     @Override
@@ -117,28 +94,18 @@ public class PitchoutGame extends Game {
         }
 
         UUID playerId = player.getPlayer().getUniqueId();
-        PlayerData playerData;
-        try {
-            // Core admission already gates on PlayerWrapperListener readiness. A managed
-            // reference avoids a synchronous SELECT on the interaction thread.
-            playerData = gameEntityManager.getReference(PlayerData.class, playerId);
-        } catch (RuntimeException exception) {
-            Pitchout.getInstance().getLogger().warning(
-                    "Could not load PlayerData for Pitchout admission: " + exception.getMessage());
-            return false;
-        }
         if (!super.addPlayer(player)) {
             return false;
         }
 
         try {
-            participantPlayerData.put(playerId, playerData);
+            participantIds.add(playerId);
             playerLives.put(player, MAX_LIVES);
             teleportToGame(player);
             Pitchout.sendMapVotePrompt(player.getPlayer());
             return true;
         } catch (RuntimeException exception) {
-            participantPlayerData.remove(playerId);
+            participantIds.remove(playerId);
             playerLives.remove(player);
             super.removePlayer(player);
             player.setState(PlayerState.LOBBY);
@@ -211,6 +178,21 @@ public class PitchoutGame extends Game {
         updateGameInfo();
 
         if (getState() == GameState.RUNNING) {
+            runningSeconds++;
+            int warningSeconds = Math.min(60, maximumRunningSeconds / 3);
+            if (!timeoutWarningSent && runningSeconds >= maximumRunningSeconds - warningSeconds) {
+                timeoutWarningSent = true;
+                for (CookiePlayer player : getPlayers()) {
+                    player.getPlayer().sendMessage(Component.text(
+                            Pitchout.message(player.getPlayer(), "pitchout.timeout.warning", warningSeconds),
+                            NamedTextColor.YELLOW));
+                }
+            }
+            if (runningSeconds >= maximumRunningSeconds) {
+                timedOut = true;
+                endGame(timeoutWinner());
+                return;
+            }
             checkForWinner();
         }
     }
@@ -224,25 +206,25 @@ public class PitchoutGame extends Game {
 
         prepareInitialSpawns();
         super.startGame();
+        runningSeconds = 0;
+        timeoutWarningSent = false;
+        startMatchPersistence();
+    }
 
-        if (!participantPlayerData.isEmpty()) {
+    private void startMatchPersistence() {
+        Set<UUID> snapshot = Set.copyOf(participantIds);
+        matchFuture = new CompletableFuture<>();
+        Bukkit.getScheduler().runTaskAsynchronously(Pitchout.getInstance(), () -> {
             try {
-                this.currentMatchInstance = matchService.startMatch("Pitchout",
-                        new ArrayList<>(participantPlayerData.values()));
-                if (this.currentMatchInstance != null) {
-                    Pitchout.getInstance().getLogger()
-                            .info("Pitchout match started: " + this.currentMatchInstance.getId());
-                }
+                Match match = matchService.startMatchByPlayerIds("Pitchout", snapshot);
+                matchFuture.complete(match);
+                Pitchout.getInstance().getLogger().info("Pitchout match started: " + match.getId());
             } catch (RuntimeException exception) {
-                this.currentMatchInstance = null;
                 Pitchout.getInstance().getLogger().severe(
                         "Pitchout will continue without match telemetry: " + exception.getMessage());
+                matchFuture.complete(null);
             }
-        } else {
-            Pitchout.getInstance().getLogger()
-                    .warning("Pitchout game starting with no participant PlayerData recorded. Match not started.");
-        }
-
+        });
     }
 
     private void prepareInitialSpawns() {
@@ -279,7 +261,8 @@ public class PitchoutGame extends Game {
                 gameState = "game.starting_in";
             }
         } else if (getState() == GameState.RUNNING) {
-            gameState = "game.running";
+            gameState = "pitchout.status.running";
+            countdownSeconds = Math.max(0, maximumRunningSeconds - runningSeconds);
         } else {
             gameState = "game.ended";
         }
@@ -289,16 +272,21 @@ public class PitchoutGame extends Game {
             boolean isSpectator = bukkitPlayer.getGameMode() == GameMode.SPECTATOR;
             String localizedState = countdownSeconds == null
                     ? LocaleManager.getMessage(gameState, bukkitPlayer.locale())
-                    : LocaleManager.getMessage(gameState, bukkitPlayer.locale(), countdownSeconds);
+                    : gameState.startsWith("pitchout.")
+                            ? Pitchout.message(bukkitPlayer, gameState, formatSeconds(countdownSeconds))
+                            : LocaleManager.getMessage(gameState, bukkitPlayer.locale(), countdownSeconds);
 
             bukkitPlayer.sendActionBar(Component.text(localizedState, NamedTextColor.YELLOW));
 
             List<String> lines = new ArrayList<>();
-            lines.add("§6Game State:");
+            lines.add("§6" + Pitchout.message(bukkitPlayer, "pitchout.scoreboard.state"));
             lines.add("§f" + localizedState);
-            lines.add("§6Map: §f" + map.getTemplate().getDisplayName());
+            lines.add("§6" + Pitchout.message(bukkitPlayer, "pitchout.scoreboard.map",
+                    map.getTemplate().getDisplayName()));
             lines.add(" ");
-            lines.add(isSpectator ? "§7Spectating" : "§6Players:");
+            lines.add(isSpectator
+                    ? "§7" + Pitchout.message(bukkitPlayer, "pitchout.scoreboard.spectating")
+                    : "§6" + Pitchout.message(bukkitPlayer, "pitchout.scoreboard.players"));
             for (CookiePlayer p : getPlayers()) {
                 int lives = getPlayerLives(p);
                 String color = getColorForScoreboard(lives);
@@ -307,6 +295,10 @@ public class PitchoutGame extends Game {
             }
             scoreboard.update(bukkitPlayer, lines);
         }
+    }
+
+    private static String formatSeconds(int seconds) {
+        return String.format(java.util.Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
     }
 
     private String getColorForScoreboard(int lives) {
@@ -332,18 +324,34 @@ public class PitchoutGame extends Game {
         }
     }
 
+    private CookiePlayer timeoutWinner() {
+        List<PitchoutTimeoutPolicy.Standing> standings = getPlayers().stream().map(player -> {
+            PitchoutStats.Snapshot snapshot = stats.snapshot(player.getPlayer().getUniqueId());
+            return new PitchoutTimeoutPolicy.Standing(player.getPlayer().getUniqueId(), getPlayerLives(player),
+                    snapshot.eliminations(), snapshot.knockbacksGiven());
+        }).toList();
+        UUID winnerId = PitchoutTimeoutPolicy.winner(standings).orElse(null);
+        return winnerId == null ? null : getPlayers().stream()
+                .filter(player -> player.getPlayer().getUniqueId().equals(winnerId))
+                .findFirst().orElse(null);
+    }
+
     private void endGame(CookiePlayer winner) {
         if (getState() == GameState.FINISHED) {
             return;
         }
 
         this.setState(GameState.FINISHED);
-        this.pendingWinner = winner;
-        this.outcomePersistenceRequested = true;
         Pitchout.getInstance().getLogger()
                 .info("Game ended. Winner: " + (winner != null ? winner.getPlayer().getName() : "None"));
 
         showOutcomeTitles(winner);
+        if (timedOut) {
+            for (CookiePlayer player : getPlayers()) {
+                player.getPlayer().sendMessage(Component.text(
+                        Pitchout.message(player.getPlayer(), "pitchout.timeout.result"), NamedTextColor.YELLOW));
+            }
+        }
         offerReplay();
         tryPersistOutcomeAndRewards(winner, true);
         scheduleEndSequence();
@@ -354,181 +362,109 @@ public class PitchoutGame extends Game {
             Player player = cookiePlayer.getPlayer();
             if (winner == null) {
                 sendGameTitle(player,
-                        Component.text("DRAW", NamedTextColor.RED, TextDecoration.BOLD),
-                        Component.text("The game ended in a draw.", NamedTextColor.GRAY));
+                        Component.text(Pitchout.message(player, "pitchout.outcome.draw"),
+                                NamedTextColor.YELLOW, TextDecoration.BOLD),
+                        Component.text(Pitchout.message(player, "pitchout.outcome.draw.subtitle"),
+                                NamedTextColor.GRAY));
             } else if (player.getUniqueId().equals(winner.getPlayer().getUniqueId())) {
                 sendGameTitle(player,
-                        Component.text("VICTORY!", NamedTextColor.GOLD, TextDecoration.BOLD),
-                        Component.text("You are the last one standing!", NamedTextColor.GRAY));
+                        Component.text(Pitchout.message(player, "pitchout.outcome.victory"),
+                                NamedTextColor.GOLD, TextDecoration.BOLD),
+                        Component.text(Pitchout.message(player, "pitchout.outcome.victory.subtitle"),
+                                NamedTextColor.GRAY));
             } else {
                 sendGameTitle(player,
-                        Component.text("GAME OVER", NamedTextColor.RED, TextDecoration.BOLD),
-                        Component.text(winner.getPlayer().getName() + " won the game.", NamedTextColor.GRAY));
+                        Component.text(Pitchout.message(player, "pitchout.outcome.defeat"),
+                                NamedTextColor.RED, TextDecoration.BOLD),
+                        Component.text(Pitchout.message(player, "pitchout.outcome.defeat.subtitle",
+                                winner.getPlayer().getName()), NamedTextColor.GRAY));
             }
         }
     }
 
     private void tryPersistOutcomeAndRewards(CookiePlayer winner, boolean notifyPlayers) {
-        if (outcomePersisted || gameEntityManager == null || !gameEntityManager.isOpen()) {
-            return;
-        }
-
-        try {
-            Map<UUID, RewardResult> rewards = persistOutcomeAndRewards(winner);
-            outcomePersisted = true;
-            rewards.keySet().forEach(LobbyScoreboard::invalidatePlayerCache);
-            recordRetentionGoals(rewards);
-            if (notifyPlayers) {
-                sendRewardMessages(rewards);
-            }
-        } catch (RuntimeException exception) {
-            Pitchout.getInstance().getLogger().severe(
-                    "Pitchout outcome persistence failed; gameplay cleanup will continue and retry once: "
-                            + exception.getMessage());
-        }
-    }
-
-    private Map<UUID, RewardResult> persistOutcomeAndRewards(CookiePlayer winner) {
-        EntityTransaction transaction = gameEntityManager.getTransaction();
-        Map<UUID, RewardResult> rewards = new HashMap<>();
+        if (outcomePersisted) return;
+        outcomePersisted = true;
         UUID winnerId = winner == null ? null : winner.getPlayer().getUniqueId();
+        Set<UUID> players = Set.copyOf(participantIds);
+        Map<UUID, RewardPlan> plans = new LinkedHashMap<>();
+        List<MatchService.Performance> performances = players.stream().map(playerId -> {
+            boolean won = playerId.equals(winnerId);
+            RewardPlan plan = new RewardPlan(won ? 25 : 5, won ? 100 : 10, won,
+                    stats.snapshot(playerId).eliminations());
+            plans.put(playerId, plan);
+            return createPerformance(playerId, plan.coins(), plan.xp(), false);
+        }).toList();
+        CompletableFuture<Match> pendingMatch = matchFuture;
+        Bukkit.getScheduler().runTaskAsynchronously(Pitchout.getInstance(), () -> {
+            Match durableMatch = awaitMatch(pendingMatch);
+            if (durableMatch != null) {
+                try {
+                    matchService.completeMatchByWinnerIds(durableMatch,
+                            winnerId == null ? Set.of() : Set.of(winnerId), performances);
+                } catch (RuntimeException exception) {
+                    Pitchout.getInstance().getLogger().severe(
+                            "Could not persist Pitchout result: " + exception.getMessage());
+                }
+            }
+            Map<UUID, RewardResult> rewards = new LinkedHashMap<>();
+            for (Map.Entry<UUID, RewardPlan> entry : plans.entrySet()) {
+                UUID playerId = entry.getKey();
+                RewardPlan plan = entry.getValue();
+                try {
+                    var progression = progressionService.applyReward(playerId,
+                            MinigameProgressionService.PITCHOUT, plan.xp(), plan.coins(),
+                            "game:" + getGameId() + ":pitchout-reward");
+                    rewards.put(playerId, new RewardResult(plan.coins(), plan.xp(), progression.getLevel(),
+                            progression.getExperience(), progression.getExperienceForNextLevel(), plan.winner(), true));
+                    CookieDough.getInstance().getGoalTracker().recordMatch(
+                            playerId, "Pitchout", plan.winner(), plan.eliminations());
+                } catch (RuntimeException exception) {
+                    Pitchout.getInstance().getLogger().warning(
+                            "Could not reward Pitchout player " + playerId + ": " + exception.getMessage());
+                }
+            }
+            Bukkit.getScheduler().runTask(Pitchout.getInstance(), () -> {
+                rewards.keySet().forEach(LobbyScoreboard::invalidatePlayerCache);
+                if (notifyPlayers) sendRewardMessages(rewards);
+            });
+        });
+    }
 
+    private Match awaitMatch(CompletableFuture<Match> pendingMatch) {
         try {
-            transaction.begin();
-            Match managedMatch = null;
-            List<UUID> participantIds = participantPlayerData.keySet().stream().sorted().toList();
-            Map<UUID, PlayerData> managedPlayers = new HashMap<>();
-            if (currentMatchInstance != null) {
-                managedMatch = gameEntityManager.find(Match.class, currentMatchInstance.getId());
-                if (managedMatch == null) {
-                    throw new IllegalStateException("Pitchout match row no longer exists");
-                }
-                managedMatch.setEndTime(new Date());
-            }
-
-            // Deterministic pessimistic locking prevents concurrent purchases or rewards
-            // from losing a player's coin update.
-            for (UUID playerId : participantIds) {
-                PlayerData playerData = gameEntityManager.find(
-                        PlayerData.class, playerId, LockModeType.PESSIMISTIC_WRITE);
-                if (playerData == null) {
-                    throw new IllegalStateException("Missing PlayerData for participant " + playerId);
-                }
-                managedPlayers.put(playerId, playerData);
-            }
-
-            for (UUID playerId : participantIds) {
-                boolean rewardAlreadyApplied = false;
-                PlayerData playerData = managedPlayers.get(playerId);
-                String rewardSource = managedMatch == null
-                        ? "game:" + getGameId() + ":pitchout-reward"
-                        : "match:" + managedMatch.getId() + ":pitchout-reward";
-
-                boolean winnerForPlayer = playerId.equals(winnerId);
-                int coinsGained = winnerForPlayer ? 25 : 5;
-                int xpGained = winnerForPlayer ? 100 : 10;
-                if (managedMatch != null) {
-                    PlayerMatchPerformance performance = findPerformance(managedMatch.getId(), playerId);
-                    rewardAlreadyApplied = performance != null;
-                    if (performance == null) {
-                        performance = createPerformance(
-                                managedMatch, playerData, playerId, coinsGained, xpGained, false);
-                        managedMatch.addPerformance(performance);
-                        gameEntityManager.persist(performance);
-                    }
-                }
-                rewardAlreadyApplied |= findCoinTransaction(playerId, rewardSource) != null;
-
-                MinigameProgressionId progressionId = new MinigameProgressionId(
-                        playerId, MinigameProgressionService.PITCHOUT);
-                MinigameProgression progression = gameEntityManager.find(MinigameProgression.class, progressionId);
-                if (progression == null) {
-                    progression = new MinigameProgression(playerId, MinigameProgressionService.PITCHOUT);
-                    gameEntityManager.persist(progression);
-                }
-
-                // The unique match/player performance row is the durable idempotency key.
-                // When match tracking was unavailable, the in-memory outcome guard is the
-                // strongest guarantee the current schema permits.
-                if (!rewardAlreadyApplied) {
-                    progression.addExperience(xpGained);
-                    playerData.addCoins(coinsGained);
-                    gameEntityManager.persist(new CoinTransaction(
-                            playerData, coinsGained, rewardSource, new Date()));
-                }
-                rewards.put(playerId, new RewardResult(
-                        coinsGained,
-                        xpGained,
-                        progression.getLevel(),
-                        progression.getExperience(),
-                        progression.getExperienceForNextLevel(),
-                        winnerForPlayer,
-                        !rewardAlreadyApplied));
-            }
-
-            if (managedMatch != null && winnerId != null) {
-                PlayerData managedWinner = managedPlayers.get(winnerId);
-                if (managedWinner != null) {
-                    managedMatch.getWinners().add(managedWinner);
-                }
-            }
-
-            transaction.commit();
-            return rewards;
-        } catch (RuntimeException exception) {
-            if (transaction.isActive()) {
-                transaction.rollback();
-            }
-            gameEntityManager.clear();
-            throw exception;
+            return pendingMatch.get(5, TimeUnit.SECONDS);
+        } catch (Exception exception) {
+            logWarning("Pitchout match start did not complete: " + exception.getMessage());
+            return null;
         }
     }
 
-    private PlayerMatchPerformance findPerformance(UUID matchId, UUID playerId) {
-        TypedQuery<PlayerMatchPerformance> query = gameEntityManager.createQuery(
-                "SELECT performance FROM PlayerMatchPerformance performance "
-                        + "WHERE performance.match.id = :matchId AND performance.player.id = :playerId",
-                PlayerMatchPerformance.class);
-        query.setParameter("matchId", matchId);
-        query.setParameter("playerId", playerId);
-        query.setMaxResults(1);
-        return query.getResultStream().findFirst().orElse(null);
-    }
-
-    private CoinTransaction findCoinTransaction(UUID playerId, String source) {
-        return gameEntityManager.createQuery(
-                "SELECT coinTransaction FROM CoinTransaction coinTransaction "
-                        + "WHERE coinTransaction.player.id = :playerId AND coinTransaction.source = :source",
-                CoinTransaction.class)
-                .setParameter("playerId", playerId)
-                .setParameter("source", source)
-                .setMaxResults(1)
-                .getResultStream()
-                .findFirst()
-                .orElse(null);
-    }
-
-    private PlayerMatchPerformance createPerformance(
-            Match match, PlayerData playerData, UUID playerId,
-            int coinsGained, int xpGained, boolean interrupted) {
+    private MatchService.Performance createPerformance(
+            UUID playerId, int coinsGained, int xpGained, boolean interrupted) {
         PitchoutStats.Snapshot snapshot = stats.snapshot(playerId);
-        PlayerMatchPerformance performance = new PlayerMatchPerformance(match, playerData);
-        performance.setKillsInMatch(snapshot.eliminations());
-        performance.setDeathsInMatch(snapshot.deaths());
-        performance.setAssistsInMatch(0);
+        return new MatchService.Performance(playerId, snapshot.eliminations(), snapshot.deaths(), 0,
+                Map.ofEntries(
+                        Map.entry("eliminations", snapshot.eliminations()),
+                        Map.entry("knockbacksGiven", snapshot.knockbacksGiven()),
+                        Map.entry("knockbacksReceived", snapshot.knockbacksReceived()),
+                        Map.entry("maxCombo", snapshot.maxCombo()),
+                        Map.entry("selfFalls", snapshot.selfFalls()),
+                        Map.entry("livesRemaining", participantLives(playerId)),
+                        Map.entry("durationSeconds", runningSeconds),
+                        Map.entry("timeout", timedOut),
+                        Map.entry("coinsAwarded", coinsGained),
+                        Map.entry("experienceAwarded", xpGained),
+                        Map.entry("interrupted", interrupted)));
+    }
 
-        JsonObject metrics = new JsonObject();
-        metrics.addProperty("eliminations", snapshot.eliminations());
-        metrics.addProperty("deaths", snapshot.deaths());
-        metrics.addProperty("knockbacksGiven", snapshot.knockbacksGiven());
-        metrics.addProperty("knockbacksReceived", snapshot.knockbacksReceived());
-        metrics.addProperty("maxCombo", snapshot.maxCombo());
-        metrics.addProperty("selfFalls", snapshot.selfFalls());
-        metrics.addProperty("coinsAwarded", coinsGained);
-        metrics.addProperty("experienceAwarded", xpGained);
-        metrics.addProperty("interrupted", interrupted);
-        performance.setGameSpecificMetrics(metrics.toString());
-        return performance;
+    private int participantLives(UUID playerId) {
+        return playerLives.entrySet().stream()
+                .filter(entry -> entry.getKey().getPlayer().getUniqueId().equals(playerId))
+                .mapToInt(Map.Entry::getValue).findFirst().orElse(0);
+    }
+
+    private record RewardPlan(int coins, int xp, boolean winner, int eliminations) {
     }
 
     private void sendRewardMessages(Map<UUID, RewardResult> rewards) {
@@ -557,26 +493,6 @@ public class PitchoutGame extends Game {
         }
     }
 
-    private void recordRetentionGoals(Map<UUID, RewardResult> rewards) {
-        for (Map.Entry<UUID, RewardResult> entry : rewards.entrySet()) {
-            RewardResult reward = entry.getValue();
-            if (!reward.newlyApplied()) {
-                continue;
-            }
-            try {
-                CookieDough.getInstance().getGoalTracker().recordMatch(
-                        entry.getKey(),
-                        "Pitchout",
-                        reward.winner(),
-                        stats.snapshot(entry.getKey()).eliminations());
-            } catch (RuntimeException exception) {
-                Pitchout.getInstance().getLogger().warning(
-                        "Could not update retention goals for " + entry.getKey() + ": "
-                                + exception.getMessage());
-            }
-        }
-    }
-
     private void scheduleEndSequence() {
         int teleportDelay = 10; // 10 seconds delay
         endSequenceTask = new BukkitRunnable() {
@@ -585,7 +501,7 @@ public class PitchoutGame extends Game {
             @Override
             public void run() {
                 if (timeLeft > 0) {
-                    for (UUID playerId : participantPlayerData.keySet()) {
+                    for (UUID playerId : participantIds) {
                         Player p = Bukkit.getPlayer(playerId);
                         if (p != null && p.isOnline()) {
                             Title countdownTitle = Title.title(
@@ -618,7 +534,7 @@ public class PitchoutGame extends Game {
     }
 
     public void shutdown() {
-        if (getState() == GameState.RUNNING && currentMatchInstance != null) {
+        if (getState() == GameState.RUNNING) {
             persistInterruptedOutcome();
         }
         setState(GameState.FINISHED);
@@ -626,34 +542,28 @@ public class PitchoutGame extends Game {
     }
 
     private void persistInterruptedOutcome() {
-        EntityTransaction transaction = gameEntityManager.getTransaction();
-        try {
-            transaction.begin();
-            Match managedMatch = gameEntityManager.find(Match.class, currentMatchInstance.getId());
-            if (managedMatch == null) {
-                throw new IllegalStateException("Pitchout match row no longer exists");
+        if (outcomePersisted) return;
+        outcomePersisted = true;
+        List<MatchService.Performance> performances = Set.copyOf(participantIds).stream()
+                .map(playerId -> createPerformance(playerId, 0, 0, true)).toList();
+        CompletableFuture<Match> pendingMatch = matchFuture;
+        boolean flushed = BoundedAsyncFlush.runAndAwait(() -> {
+            Match durableMatch = awaitMatch(pendingMatch);
+            if (durableMatch == null) return;
+            try {
+                new MatchService(null).completeMatchByWinnerIds(durableMatch, Set.of(), performances);
+            } catch (RuntimeException exception) {
+                logWarning("Could not persist interrupted Pitchout match: " + exception.getMessage());
             }
-            managedMatch.setEndTime(new Date());
-            for (UUID playerId : participantPlayerData.keySet()) {
-                if (findPerformance(managedMatch.getId(), playerId) != null) {
-                    continue;
-                }
-                PlayerData playerData = gameEntityManager.find(PlayerData.class, playerId);
-                if (playerData != null) {
-                    PlayerMatchPerformance performance = createPerformance(
-                            managedMatch, playerData, playerId, 0, 0, true);
-                    managedMatch.addPerformance(performance);
-                    gameEntityManager.persist(performance);
-                }
-            }
-            transaction.commit();
-        } catch (RuntimeException exception) {
-            if (transaction.isActive()) {
-                transaction.rollback();
-            }
-            Pitchout.getInstance().getLogger().warning(
-                    "Could not persist interrupted Pitchout match: " + exception.getMessage());
+        }, Duration.ofSeconds(2));
+        if (!flushed) {
+            logWarning("Interrupted Pitchout persistence exceeded the 2 second shutdown budget; shutdown continues");
         }
+    }
+
+    private void logWarning(String message) {
+        Pitchout plugin = Pitchout.getInstance();
+        if (plugin != null) plugin.getLogger().warning(message);
     }
 
     private void cleanupGameResources() {
@@ -665,10 +575,6 @@ public class PitchoutGame extends Game {
         if (endSequenceTask != null) {
             endSequenceTask.cancel();
             endSequenceTask = null;
-        }
-
-        if (outcomePersistenceRequested && !outcomePersisted) {
-            tryPersistOutcomeAndRewards(pendingWinner, true);
         }
 
         if (MapManager.inGamePlayerListener != null) {
@@ -694,7 +600,6 @@ public class PitchoutGame extends Game {
             scoreboard.clear();
             stats.clear();
             GameManager.removeGame(this);
-            closeEntityManager();
         }
     }
 
@@ -736,18 +641,6 @@ public class PitchoutGame extends Game {
         }
     }
 
-    private void closeEntityManager() {
-        if (gameEntityManager != null && gameEntityManager.isOpen()) {
-            EntityTransaction transaction = gameEntityManager.getTransaction();
-            if (transaction.isActive()) {
-                transaction.rollback();
-            }
-            gameEntityManager.close();
-            Pitchout.getInstance().getLogger()
-                    .info("GameEntityManager closed for Pitchout game: " + getGameId());
-        }
-    }
-
     @Override
     public void removePlayer(CookiePlayer player) {
         boolean wasInGame = getPlayers().contains(player);
@@ -762,7 +655,7 @@ public class PitchoutGame extends Game {
         if (getState() == GameState.RUNNING) {
             checkForWinner();
         } else if (getState() == GameState.OPEN) {
-            participantPlayerData.remove(player.getPlayer().getUniqueId());
+            participantIds.remove(player.getPlayer().getUniqueId());
         }
     }
 

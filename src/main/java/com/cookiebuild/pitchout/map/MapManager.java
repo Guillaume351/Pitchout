@@ -24,8 +24,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.logging.Logger;
 
 public class MapManager {
+    private static final Logger LOGGER = Logger.getLogger(MapManager.class.getName());
+
+    public record PreparedMap(UUID gameId, String mapName, MapTemplate template,
+            NamespacedKey worldKey, File archive, File destination, boolean selectedByVote) { }
     public static InGamePlayerListener inGamePlayerListener;
     private static final Map<String, MapTemplate> mapTemplates = new HashMap<>();
     private static final Map<String, GameMap> loadedMaps = new HashMap<>();
@@ -101,6 +106,21 @@ public class MapManager {
     }
 
     public static GameMap loadMapForGame(PitchoutGame game, String mapName) throws IOException {
+        PreparedMap prepared = prepareIo(plan(game.getGameId(), mapName, false));
+        try {
+            return loadPrepared(prepared);
+        } catch (IOException error) {
+            discardPrepared(prepared);
+            throw error;
+        }
+    }
+
+    public static PreparedMap plan(UUID gameId, MapSelection selection) throws IOException {
+        return plan(gameId, selection.mapName(), selection.selectedByVote());
+    }
+
+    private static PreparedMap plan(UUID gameId, String mapName, boolean selectedByVote) throws IOException {
+        requirePrimaryThread("planned");
         MapTemplate template = mapTemplates.get(mapName);
         if (template == null) {
             throw new IllegalArgumentException("Map template " + mapName + " does not exist.");
@@ -111,29 +131,39 @@ public class MapManager {
             throw new IOException("Map archive does not exist: " + zippedMap.getAbsolutePath());
         }
 
-        NamespacedKey worldKey = new NamespacedKey(Pitchout.getInstance(), game.getGameId().toString());
+        NamespacedKey worldKey = new NamespacedKey(Pitchout.getInstance(), gameId.toString());
         if (Bukkit.getWorld(worldKey) != null) {
             throw new IOException("World is already loaded: " + worldKey);
         }
 
         File gameMapDir = getWorldDirectory(worldKey);
+        return new PreparedMap(gameId, mapName, template, worldKey, zippedMap, gameMapDir, selectedByVote);
+    }
+
+    public static PreparedMap prepareIo(PreparedMap prepared) throws IOException {
+        File gameMapDir = prepared.destination();
         if (gameMapDir.exists()) {
             FileUtils.deleteDirectory(gameMapDir);
         }
         try {
-            ZipUtils.unzip(zippedMap, gameMapDir);
+            ZipUtils.unzip(prepared.archive(), gameMapDir);
             removeTransientWorldFiles(gameMapDir.toPath());
-        } catch (IOException exception) {
-            if (gameMapDir.exists()) {
-                FileUtils.deleteDirectory(gameMapDir);
+            if (!gameMapDir.isDirectory()) {
+                throw new IOException("Unzipped world folder does not exist: " + gameMapDir.getAbsolutePath());
             }
-            throw exception;
+            return prepared;
+        } catch (IOException | RuntimeException error) {
+            discardPrepared(prepared);
+            if (error instanceof IOException ioError) throw ioError;
+            throw new IOException("Could not prepare Pitchout world", error);
         }
+    }
 
-        if (!gameMapDir.exists()) {
-            throw new IOException("Unzipped world folder does not exist: " + gameMapDir.getAbsolutePath());
-        }
-
+    public static GameMap loadPrepared(PreparedMap prepared) throws IOException {
+        requirePrimaryThread("loaded");
+        MapTemplate template = prepared.template();
+        NamespacedKey worldKey = prepared.worldKey();
+        File gameMapDir = prepared.destination();
         World world;
         try {
             org.bukkit.Location forcedSpawn = template.getSpawnLocation(null);
@@ -148,42 +178,65 @@ public class MapManager {
                     .generator(new VoidChunkGenerator())
                     .createWorld();
         } catch (RuntimeException exception) {
-            if (Bukkit.getWorld(worldKey) == null) {
-                FileUtils.deleteDirectory(gameMapDir);
-            }
+            World partial = Bukkit.getWorld(worldKey);
+            if (partial != null && partial.getPlayers().isEmpty()) Bukkit.unloadWorld(partial, false);
             throw new IOException("Failed to create world: " + worldKey, exception);
         }
 
         if (world == null) {
-            FileUtils.deleteDirectory(gameMapDir);
             throw new IOException("Failed to create world: " + worldKey);
         }
 
         Path expectedWorldFolder = gameMapDir.toPath().toAbsolutePath().normalize();
         Path actualWorldFolder = world.getWorldFolder().toPath().toAbsolutePath().normalize();
         if (!actualWorldFolder.equals(expectedWorldFolder)) {
-            if (Bukkit.unloadWorld(world, false)) {
-                FileUtils.deleteDirectory(actualWorldFolder.toFile());
-            }
-            FileUtils.deleteDirectory(expectedWorldFolder.toFile());
+            Bukkit.unloadWorld(world, false);
             throw new IOException("Paper resolved world " + worldKey + " to " + actualWorldFolder
                     + " instead of the prepared template directory " + expectedWorldFolder);
         }
 
-        CookieDough.getInstance().getLogger().info("Created world " + worldKey + " based on map " + mapName);
-        world.setAutoSave(false);
-        world.setThundering(false);
-        world.setGameRule(GameRules.SHOW_ADVANCEMENT_MESSAGES, false);
+        try {
+            CookieDough.getInstance().getLogger().info(
+                    "Created world " + worldKey + " based on map " + prepared.mapName());
+            world.setAutoSave(false);
+            world.setThundering(false);
+            world.setGameRule(GameRules.SHOW_ADVANCEMENT_MESSAGES, false);
 
-        // Create the game map with the world loaded
-        GameMap gameMap = new GameMap(game,template, world);
-        loadedMaps.put(game.getGameId().toString(), gameMap);
-
-        if (inGamePlayerListener != null) {
-            inGamePlayerListener.addProtectedWorld(world.getName());
+            GameMap gameMap = new GameMap(template, world);
+            loadedMaps.put(prepared.gameId().toString(), gameMap);
+            if (inGamePlayerListener != null) {
+                inGamePlayerListener.addProtectedWorld(world.getName());
+            }
+            return gameMap;
+        } catch (RuntimeException error) {
+            loadedMaps.remove(prepared.gameId().toString());
+            if (inGamePlayerListener != null) {
+                inGamePlayerListener.removeProtectedWorld(world.getName());
+            }
+            if (world.getPlayers().isEmpty()) Bukkit.unloadWorld(world, false);
+            throw new IOException("Failed to initialize world: " + worldKey, error);
         }
+    }
 
-        return gameMap;
+    public static void discardPrepared(PreparedMap prepared) {
+        try {
+            if (prepared.destination().exists()) FileUtils.deleteDirectory(prepared.destination());
+        } catch (IOException error) {
+            LOGGER.warning("Could not delete prepared Pitchout files: " + error.getMessage());
+        }
+    }
+
+    /** Unload a world registered by loadPrepared when game construction fails; filesystem cleanup stays async. */
+    public static boolean discardLoadedWorld(UUID gameId) {
+        GameMap map = loadedMaps.get(gameId.toString());
+        if (map == null) return true;
+        World world = Bukkit.getWorld(map.getWorld().getKey());
+        if (world != null && (!world.getPlayers().isEmpty() || !Bukkit.unloadWorld(world, false))) return false;
+        loadedMaps.remove(gameId.toString(), map);
+        if (inGamePlayerListener != null) {
+            inGamePlayerListener.removeProtectedWorld(map.getWorld().getName());
+        }
+        return true;
     }
 
     public static GameMap getLoadedMap(String gameUUID) {
@@ -236,6 +289,12 @@ public class MapManager {
     }
 
     public record MapSelection(String mapName, boolean selectedByVote) {
+    }
+
+    private static void requirePrimaryThread(String action) {
+        if (!Bukkit.isPrimaryThread()) {
+            throw new IllegalStateException("Pitchout worlds must be " + action + " on the server thread");
+        }
     }
 
     public static synchronized MapSelection selectMapForNextGame() {

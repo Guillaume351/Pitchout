@@ -1,24 +1,17 @@
 package com.cookiebuild.pitchout.map;
 
-import com.cookiebuild.pitchout.game.PitchoutGame;
 import org.bukkit.Location;
 import org.bukkit.World;
 
 import java.util.List;
 
 public class GameMap {
-    private final PitchoutGame game;
     private final MapTemplate template;
     private final World world;
 
-    public GameMap(PitchoutGame game, MapTemplate template, World world) {
-        this.game = game;
+    public GameMap(MapTemplate template, World world) {
         this.template = template;
         this.world = world;
-    }
-
-    public PitchoutGame getGame() {
-        return game;
     }
 
     public MapTemplate getTemplate() {

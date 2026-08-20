@@ -3,6 +3,8 @@ package com.cookiebuild.pitchout;
 import java.text.MessageFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletionException;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -17,6 +19,10 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 import com.cookiebuild.cookiedough.game.Game;
 import com.cookiebuild.cookiedough.game.GameManager;
+import com.cookiebuild.cookiedough.game.GameState;
+import com.cookiebuild.cookiedough.game.BukkitArenaPreparationScheduler;
+import com.cookiebuild.cookiedough.game.StandbyArenaService;
+import com.cookiebuild.cookiedough.game.StandbyRefillPolicy;
 import com.cookiebuild.cookiedough.player.CookiePlayer;
 import com.cookiebuild.cookiedough.player.PlayerManager;
 import com.cookiebuild.cookiedough.player.PlayerState;
@@ -49,6 +55,8 @@ public final class Pitchout extends JavaPlugin {
             Map.entry("pitchout.join.return_lobby", "Return to the lobby before joining another game."));
     private static Pitchout instance;
     private NamespacedKey replayHookKey;
+    private StandbyArenaService<MapManager.PreparedMap, PitchoutGame> arenas;
+    private boolean shuttingDown;
 
     public static Pitchout getInstance() {
         return instance;
@@ -59,8 +67,54 @@ public final class Pitchout extends JavaPlugin {
         instance = this;
     }
 
-    public static void registerNewGame() {
-        GameManager.addGame(new PitchoutGame());
+    public static boolean registerNewGame() {
+        return instance != null && !instance.shuttingDown && instance.arenas.request(0L);
+    }
+
+    public static void activateNextGame() {
+        if (instance == null || instance.shuttingDown) return;
+        instance.arenas.activateNext();
+    }
+
+    public static void requestStandbyRefill() {
+        if (instance != null && !instance.shuttingDown) {
+            instance.arenas.request(StandbyRefillPolicy.RUNTIME_DELAY_TICKS);
+        }
+    }
+
+    private MapManager.PreparedMap planArena() {
+        try {
+            return MapManager.plan(UUID.randomUUID(), MapManager.selectMapForNextGame());
+        } catch (java.io.IOException error) {
+            throw new CompletionException(error);
+        }
+    }
+
+    private static MapManager.PreparedMap prepareArenaIo(MapManager.PreparedMap plan) {
+        try {
+            return MapManager.prepareIo(plan);
+        } catch (java.io.IOException error) {
+            throw new CompletionException(error);
+        }
+    }
+
+    private static PitchoutGame loadArena(MapManager.PreparedMap prepared) {
+        try {
+            var map = MapManager.loadPrepared(prepared);
+            try {
+                PitchoutGame game = new PitchoutGame(prepared.gameId(), map);
+                if (prepared.selectedByVote()) announceMapVoteWinner(prepared.mapName());
+                return game;
+            } catch (RuntimeException error) {
+                if (!MapManager.discardLoadedWorld(prepared.gameId())) {
+                    Pitchout.getInstance().getLogger().warning(
+                            "Could not unload partially constructed Pitchout arena " + prepared.gameId());
+                }
+                throw error;
+            }
+        } catch (java.io.IOException error) {
+            throw new CompletionException(error);
+        }
     }
 
     @Override
@@ -75,7 +129,15 @@ public final class Pitchout extends JavaPlugin {
 
         MapManager.loadMapTemplates();
         MapManager.inGamePlayerListener = new InGamePlayerListener();
-        registerNewGame();
+        arenas = new StandbyArenaService<>(
+                "Pitchout", new BukkitArenaPreparationScheduler(this), this::planArena,
+                Pitchout::prepareArenaIo, Pitchout::loadArena, MapManager::discardPrepared,
+                () -> GameManager.getGames().stream().filter(PitchoutGame.class::isInstance)
+                        .anyMatch(game -> game.getState() == GameState.OPEN),
+                GameManager::addGame, PitchoutGame::shutdown, getLogger(), false);
+        if (!registerNewGame()) {
+            getLogger().warning("No Pitchout game registered; selectors remain fail-closed.");
+        }
 
         Bukkit.getPluginManager().registerEvents(MapManager.inGamePlayerListener, this);
     }
@@ -208,6 +270,8 @@ public final class Pitchout extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        shuttingDown = true;
+        if (arenas != null) arenas.shutdown();
         for (Game game : new java.util.ArrayList<>(GameManager.getGames())) {
             if (game instanceof PitchoutGame pitchoutGame) {
                 pitchoutGame.shutdown();
@@ -217,5 +281,6 @@ public final class Pitchout extends JavaPlugin {
             this.getLogger().warning("Some Pitchout map directories could not be cleaned up during shutdown");
         }
         this.getLogger().info("Pitchout plugin disabled!");
+        instance = null;
     }
 }

@@ -1,3 +1,7 @@
+game:
+  # Lives decide first, then eliminations and knockbacks; an exact tie is a draw.
+  maximum-running-seconds: 360
+
 maps:
   pitchout1:
     display-name: Cookie Circuit
