@@ -30,6 +30,7 @@ import com.cookiebuild.cookiedough.utils.LocaleManager;
 import com.cookiebuild.pitchout.game.PitchoutGame;
 import com.cookiebuild.pitchout.listeners.InGamePlayerListener;
 import com.cookiebuild.pitchout.map.MapManager;
+import com.cookiebuild.pitchout.ui.PitchoutBedrockForms;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -43,6 +44,9 @@ public final class Pitchout extends JavaPlugin {
             Map.entry("pitchout.vote.recorded", "Your vote for {0} will help choose the next Pitchout arena."),
             Map.entry("pitchout.vote.invalid_map", "Unknown Pitchout map. Available maps: {0}"),
             Map.entry("pitchout.vote.unavailable", "Map voting is only available while waiting for or playing Pitchout."),
+            Map.entry("pitchout.vote.form.title", "Next Pitchout arena"),
+            Map.entry("pitchout.vote.form.content", "Choose one arena. Your latest vote replaces the previous one."),
+            Map.entry("pitchout.form.close", "Close"),
             Map.entry("pitchout.vote.winner", "Next arena selected: {0}"),
             Map.entry("pitchout.replay.ready", "Ready for another round?"),
             Map.entry("pitchout.replay.action", "Play Pitchout again"),
@@ -218,6 +222,7 @@ public final class Pitchout extends JavaPlugin {
         if (maps.isEmpty()) {
             return;
         }
+        if (PitchoutBedrockForms.openMapVote(player, maps, map -> voteForNextMap(player, map))) return;
         Component prompt = Component.text(
                 message(player, "pitchout.vote.prompt", maps.stream()
                         .map(MapManager::getDisplayName).collect(java.util.stream.Collectors.joining(", "))) + " ",
@@ -258,6 +263,10 @@ public final class Pitchout extends JavaPlugin {
         }
         player.sendMessage(Component.text(
                 message(player, "pitchout.vote.recorded", MapManager.getDisplayName(selectedMap)), NamedTextColor.GREEN));
+    }
+
+    public static boolean openReplayForm(Player player) {
+        return PitchoutBedrockForms.openReplay(player, () -> joinOpenGame(player));
     }
 
     public static String message(Player player, String key, Object... arguments) {

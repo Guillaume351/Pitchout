@@ -248,7 +248,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
             return;
         }
         event.setCancelled(true);
-        Pitchout.joinOpenGame(event.getPlayer());
+        if (!Pitchout.openReplayForm(event.getPlayer())) Pitchout.joinOpenGame(event.getPlayer());
     }
 
     public void clearGameState(UUID gameId) {
