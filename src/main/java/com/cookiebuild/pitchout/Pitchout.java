@@ -36,6 +36,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
+import com.cookiebuild.cookiedough.ui.MenuLore;
 import net.kyori.adventure.text.format.TextDecoration;
 
 public final class Pitchout extends JavaPlugin {
@@ -189,7 +190,7 @@ public final class Pitchout extends JavaPlugin {
         ItemMeta meta = replayItem.getItemMeta();
         meta.displayName(Component.text(message(player, "pitchout.replay.action"),
                 NamedTextColor.GOLD, TextDecoration.BOLD));
-        meta.lore(List.of(Component.text(message(player, "pitchout.replay.hover"), NamedTextColor.GRAY)));
+        meta.lore(List.of(MenuLore.detail(message(player, "pitchout.replay.hover"))));
         meta.getPersistentDataContainer().set(instance.replayHookKey, PersistentDataType.BYTE, (byte) 1);
         replayItem.setItemMeta(meta);
         player.getInventory().setItem(4, replayItem);

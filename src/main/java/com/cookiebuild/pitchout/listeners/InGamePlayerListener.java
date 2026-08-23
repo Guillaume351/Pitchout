@@ -20,6 +20,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import com.cookiebuild.pitchout.ui.PitchoutBedrockForms;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.projectiles.ProjectileSource;
 
@@ -222,6 +223,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
+        PitchoutBedrockForms.invalidate(event.getPlayer());
         Player player = event.getPlayer();
         combatAttribution.removePlayer(player.getUniqueId());
         // CookieDough's quit listener may already have removed the PlayerManager entry.
