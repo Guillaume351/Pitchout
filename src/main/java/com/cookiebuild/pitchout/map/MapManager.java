@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -314,6 +315,10 @@ public class MapManager {
     public static synchronized String getDisplayName(String mapName) {
         MapTemplate template = mapTemplates.get(mapName);
         return template == null ? MapDisplayNames.fallback(mapName) : template.getDisplayName();
+    }
+
+    public static synchronized String getDisplayName(String mapName, Locale locale) {
+        return MapDisplayNames.localized(mapName, getDisplayName(mapName), locale);
     }
 
     public static synchronized String recordNextMapVote(UUID playerId, String requestedMap) {

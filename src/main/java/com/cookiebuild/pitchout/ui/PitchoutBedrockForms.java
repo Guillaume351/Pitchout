@@ -35,7 +35,7 @@ public final class PitchoutBedrockForms {
                 .title("§l§6" + Pitchout.message(player, "pitchout.vote.form.title"))
                 .content(Pitchout.message(player, "pitchout.vote.form.content"));
         options.forEach(map -> BedrockFormImages.button(form,
-                BedrockButtonText.format(MapManager.getDisplayName(map)),
+                BedrockButtonText.format(MapManager.getDisplayName(map, player.locale())),
                 MAP_IMAGE));
         BedrockFormImages.button(form, BedrockButtonText.format(
                 Pitchout.message(player, "pitchout.form.close")), CLOSE_IMAGE);

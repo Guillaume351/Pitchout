@@ -282,7 +282,8 @@ public class PitchoutGame extends Game {
             lines.add("§6" + Pitchout.message(bukkitPlayer, "pitchout.scoreboard.state"));
             lines.add("§f" + localizedState);
             lines.add("§6" + Pitchout.message(bukkitPlayer, "pitchout.scoreboard.map",
-                    map.getTemplate().getDisplayName()));
+                    MapManager.getDisplayName(
+                            map.getTemplate().getName(), bukkitPlayer.locale())));
             lines.add(" ");
             lines.add(isSpectator
                     ? "§7" + Pitchout.message(bukkitPlayer, "pitchout.scoreboard.spectating")

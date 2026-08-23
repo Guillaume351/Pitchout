@@ -48,6 +48,7 @@ public final class Pitchout extends JavaPlugin {
             Map.entry("pitchout.vote.form.title", "Next Pitchout arena"),
             Map.entry("pitchout.vote.form.content", "Choose one arena. Your latest vote replaces the previous one."),
             Map.entry("pitchout.form.close", "Close"),
+            Map.entry("pitchout.vote.option_hover", "Vote for {0}"),
             Map.entry("pitchout.vote.winner", "Next arena selected: {0}"),
             Map.entry("pitchout.replay.ready", "Ready for another round?"),
             Map.entry("pitchout.replay.action", "Play Pitchout again"),
@@ -226,13 +227,15 @@ public final class Pitchout extends JavaPlugin {
         if (PitchoutBedrockForms.openMapVote(player, maps, map -> voteForNextMap(player, map))) return;
         Component prompt = Component.text(
                 message(player, "pitchout.vote.prompt", maps.stream()
-                        .map(MapManager::getDisplayName).collect(java.util.stream.Collectors.joining(", "))) + " ",
+                        .map(map -> MapManager.getDisplayName(map, player.locale()))
+                        .collect(java.util.stream.Collectors.joining(", "))) + " ",
                 NamedTextColor.YELLOW);
         for (String mapName : maps) {
-            String displayName = MapManager.getDisplayName(mapName);
+            String displayName = MapManager.getDisplayName(mapName, player.locale());
             prompt = prompt.append(Component.text("[" + displayName + "] ", NamedTextColor.AQUA)
                     .clickEvent(ClickEvent.runCommand("/pitchout vote " + mapName))
-                    .hoverEvent(HoverEvent.showText(Component.text("Vote for " + displayName))));
+                    .hoverEvent(HoverEvent.showText(Component.text(
+                            message(player, "pitchout.vote.option_hover", displayName)))));
         }
         player.sendMessage(prompt);
     }
@@ -242,7 +245,8 @@ public final class Pitchout extends JavaPlugin {
             CookiePlayer cookiePlayer = PlayerManager.getPlayer(player);
             if (cookiePlayer != null && GameManager.getGameOfPlayer(cookiePlayer) instanceof PitchoutGame) {
                 player.sendMessage(Component.text(
-                        message(player, "pitchout.vote.winner", MapManager.getDisplayName(mapName)), NamedTextColor.GREEN));
+                        message(player, "pitchout.vote.winner",
+                                MapManager.getDisplayName(mapName, player.locale())), NamedTextColor.GREEN));
             }
         }
     }
@@ -258,12 +262,14 @@ public final class Pitchout extends JavaPlugin {
             player.sendMessage(Component.text(message(
                     player,
                     "pitchout.vote.invalid_map",
-                    MapManager.getEligibleNextMapNames().stream().map(MapManager::getDisplayName)
+                    MapManager.getEligibleNextMapNames().stream()
+                            .map(map -> MapManager.getDisplayName(map, player.locale()))
                             .collect(java.util.stream.Collectors.joining(", "))), NamedTextColor.RED));
             return;
         }
         player.sendMessage(Component.text(
-                message(player, "pitchout.vote.recorded", MapManager.getDisplayName(selectedMap)), NamedTextColor.GREEN));
+                message(player, "pitchout.vote.recorded",
+                        MapManager.getDisplayName(selectedMap, player.locale())), NamedTextColor.GREEN));
     }
 
     public static boolean openReplayForm(Player player) {
