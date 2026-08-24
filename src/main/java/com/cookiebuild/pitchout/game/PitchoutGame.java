@@ -615,10 +615,19 @@ public class PitchoutGame extends Game implements ReconnectableGame {
         }
         if (!ejectOwnedPlayersToLobby()) {
             cleanupStarted = false;
-            Pitchout.getInstance().getLogger().warning(
-                    "Deferring Pitchout map cleanup until every player reaches the lobby: " + getGameId());
-            endSequenceTask = Bukkit.getScheduler().runTaskLater(
-                    Pitchout.getInstance(), this::cleanupGameResources, 20L);
+            Pitchout plugin = Pitchout.getInstance();
+            if (plugin != null) {
+                plugin.getLogger().warning(
+                        "Deferring Pitchout map cleanup until every player reaches the lobby: " + getGameId());
+            }
+            if (plugin != null && plugin.isEnabled()) {
+                try {
+                    endSequenceTask = Bukkit.getScheduler().runTaskLater(
+                            plugin, this::cleanupGameResources, 20L);
+                } catch (RuntimeException error) {
+                    plugin.getLogger().warning("Could not schedule Pitchout cleanup retry: " + error.getMessage());
+                }
+            }
             return;
         }
 
