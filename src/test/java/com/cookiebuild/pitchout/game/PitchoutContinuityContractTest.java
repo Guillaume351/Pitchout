@@ -26,5 +26,8 @@ class PitchoutContinuityContractTest {
                 < removal.indexOf("\"disconnect\".equalsIgnoreCase(reason)"));
         assertTrue(source.indexOf("ejectSpectatorsToLobby();")
                 < source.indexOf("MapManager.unloadMap(getGameId().toString())"));
+        assertTrue(source.contains("for (CookiePlayer player : matchViewers())"));
+        assertTrue(source.contains("for (CookiePlayer cookiePlayer : matchViewers())"));
+        assertTrue(source.contains("for (CookiePlayer spectator : getSpectators())"));
     }
 }

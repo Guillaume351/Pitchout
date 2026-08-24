@@ -285,9 +285,10 @@ public class PitchoutGame extends Game implements ReconnectableGame {
             gameState = "game.ended";
         }
 
-        for (CookiePlayer player : getPlayers()) {
+        for (CookiePlayer player : matchViewers()) {
             Player bukkitPlayer = player.getPlayer();
-            boolean isSpectator = bukkitPlayer.getGameMode() == GameMode.SPECTATOR;
+            boolean isSpectator = bukkitPlayer.getGameMode() == GameMode.SPECTATOR
+                    || isExternalSpectator(bukkitPlayer.getUniqueId());
             String localizedState = countdownSeconds == null
                     ? LocaleManager.getMessage(gameState, bukkitPlayer.locale())
                     : gameState.startsWith("pitchout.")
@@ -377,7 +378,7 @@ public class PitchoutGame extends Game implements ReconnectableGame {
     }
 
     private void showOutcomeTitles(CookiePlayer winner) {
-        for (CookiePlayer cookiePlayer : getPlayers()) {
+        for (CookiePlayer cookiePlayer : matchViewers()) {
             Player player = cookiePlayer.getPlayer();
             if (winner == null) {
                 sendGameTitle(player,
@@ -385,6 +386,12 @@ public class PitchoutGame extends Game implements ReconnectableGame {
                                 NamedTextColor.YELLOW, TextDecoration.BOLD),
                         Component.text(Pitchout.message(player, "pitchout.outcome.draw.subtitle"),
                                 NamedTextColor.GRAY));
+            } else if (isExternalSpectator(player.getUniqueId())) {
+                sendGameTitle(player,
+                        Component.text(LocaleManager.getMessage("game.ended", player.locale()),
+                                NamedTextColor.GOLD, TextDecoration.BOLD),
+                        Component.text(Pitchout.message(player, "pitchout.outcome.defeat.subtitle",
+                                winner.getPlayer().getName()), NamedTextColor.GRAY));
             } else if (player.getUniqueId().equals(winner.getPlayer().getUniqueId())) {
                 sendGameTitle(player,
                         Component.text(Pitchout.message(player, "pitchout.outcome.victory"),
@@ -399,6 +406,17 @@ public class PitchoutGame extends Game implements ReconnectableGame {
                                 winner.getPlayer().getName()), NamedTextColor.GRAY));
             }
         }
+    }
+
+    private List<CookiePlayer> matchViewers() {
+        Map<UUID, CookiePlayer> viewers = new LinkedHashMap<>();
+        for (CookiePlayer participant : getPlayers()) {
+            viewers.put(participant.getPlayer().getUniqueId(), participant);
+        }
+        for (CookiePlayer spectator : getSpectators()) {
+            viewers.putIfAbsent(spectator.getPlayer().getUniqueId(), spectator);
+        }
+        return List.copyOf(viewers.values());
     }
 
     private void tryPersistOutcomeAndRewards(CookiePlayer winner, boolean notifyPlayers) {
