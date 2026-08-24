@@ -24,7 +24,7 @@ class PitchoutContinuityContractTest {
         assertTrue(source.indexOf("restorePlayerAfterReconnect(cookiePlayer)") < source.indexOf("snapshot.applyState"));
         assertTrue(removal.indexOf("getSpectators().stream()")
                 < removal.indexOf("\"disconnect\".equalsIgnoreCase(reason)"));
-        assertTrue(source.indexOf("ejectSpectatorsToLobby();")
+        assertTrue(source.indexOf("if (!ejectOwnedPlayersToLobby())")
                 < source.indexOf("MapManager.unloadMap(getGameId().toString())"));
         assertTrue(source.contains("for (CookiePlayer player : matchViewers())"));
         assertTrue(source.contains("for (CookiePlayer cookiePlayer : matchViewers())"));

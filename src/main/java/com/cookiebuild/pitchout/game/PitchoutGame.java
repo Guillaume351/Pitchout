@@ -613,6 +613,14 @@ public class PitchoutGame extends Game implements ReconnectableGame {
             endSequenceTask.cancel();
             endSequenceTask = null;
         }
+        if (!ejectOwnedPlayersToLobby()) {
+            cleanupStarted = false;
+            Pitchout.getInstance().getLogger().warning(
+                    "Deferring Pitchout map cleanup until every player reaches the lobby: " + getGameId());
+            endSequenceTask = Bukkit.getScheduler().runTaskLater(
+                    Pitchout.getInstance(), this::cleanupGameResources, 20L);
+            return;
+        }
 
         if (MapManager.inGamePlayerListener != null) {
             MapManager.inGamePlayerListener.clearGameState(getGameId());
@@ -625,7 +633,6 @@ public class PitchoutGame extends Game implements ReconnectableGame {
                     "Failed while draining Pitchout players; map cleanup will continue: " + exception.getMessage());
         }
 
-        ejectSpectatorsToLobby();
         try {
             if (map != null && !MapManager.unloadMap(getGameId().toString())) {
                 Pitchout.getInstance().getLogger().warning(
