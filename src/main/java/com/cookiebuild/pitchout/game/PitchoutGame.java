@@ -138,7 +138,7 @@ public class PitchoutGame extends Game implements ReconnectableGame {
 
         player.resetPlayer();
         if (getState() == GameState.OPEN) {
-            player.getPlayer().teleport(map.getWaitingLobbyLocation());
+            teleportPlayerSafely(player.getPlayer(), map.getWaitingLobbyLocation());
             return;
         }
 
@@ -158,7 +158,7 @@ public class PitchoutGame extends Game implements ReconnectableGame {
         player.getPlayer().getInventory().setItem(8, arrow);
         Location spawnLocation = initialSpawns.getOrDefault(
                 player.getPlayer().getUniqueId(), map.getRandomSpawnLocation());
-        player.getPlayer().teleport(spawnLocation);
+        teleportPlayerSafely(player.getPlayer(), spawnLocation);
         player.getPlayer().setFallDistance(0);
         player.setState(PlayerState.IN_GAME);
     }
