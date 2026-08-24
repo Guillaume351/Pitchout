@@ -40,7 +40,7 @@ public final class PitchoutBedrockForms {
         BedrockFormImages.button(form, BedrockButtonText.format(
                 Pitchout.message(player, "pitchout.form.close")), CLOSE_IMAGE);
         form.validResultHandler(response -> {
-            int index = response.getClickedButtonId();
+            int index = response.clickedButtonId();
             MainThreadPlayerAction.dispatch(plugin, player, () -> {
                 if (SESSIONS.consume(player.getUniqueId(), nonce, scope)
                         && index >= 0 && index < options.size()) voteHandler.accept(options.get(index));
@@ -67,7 +67,7 @@ public final class PitchoutBedrockForms {
         BedrockFormImages.button(form, BedrockButtonText.format(
                 Pitchout.message(player, "pitchout.form.close")), CLOSE_IMAGE);
         form.validResultHandler(response -> {
-            int index = response.getClickedButtonId();
+            int index = response.clickedButtonId();
             MainThreadPlayerAction.dispatch(plugin, player, () -> {
                 if (SESSIONS.consume(player.getUniqueId(), nonce, scope) && index == 0) replayHandler.run();
             });

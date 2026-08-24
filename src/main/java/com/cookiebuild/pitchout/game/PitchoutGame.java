@@ -32,6 +32,8 @@ import com.cookiebuild.cookiedough.CookieDough;
 import com.cookiebuild.cookiedough.game.Game;
 import com.cookiebuild.cookiedough.game.GameManager;
 import com.cookiebuild.cookiedough.game.GameState;
+import com.cookiebuild.cookiedough.game.PlayerActivitySnapshot;
+import com.cookiebuild.cookiedough.game.ReconnectableGame;
 import com.cookiebuild.cookiedough.lobby.LobbyManager;
 import com.cookiebuild.cookiedough.lobby.LobbyScoreboard;
 import com.cookiebuild.cookiedough.model.Match;
@@ -49,11 +51,14 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.title.Title;
 
-public class PitchoutGame extends Game {
+public class PitchoutGame extends Game implements ReconnectableGame {
+    private static final long RECONNECT_GRACE_MILLIS = Duration.ofSeconds(60).toMillis();
     private static final int MAX_LIVES = 5;
     private GameMap map;
     private final HashMap<CookiePlayer, Integer> playerLives = new HashMap<>();
     private final Map<UUID, Location> initialSpawns = new HashMap<>();
+    private final Map<UUID, Long> disconnectedAt = new HashMap<>();
+    private final Map<UUID, PlayerActivitySnapshot> reconnectSnapshots = new HashMap<>();
     private final PitchoutScoreboard scoreboard = new PitchoutScoreboard();
     private final PitchoutStats stats = new PitchoutStats();
     private BukkitTask endSequenceTask;
@@ -68,6 +73,7 @@ public class PitchoutGame extends Game {
     private int runningSeconds;
     private final int maximumRunningSeconds;
     private boolean timeoutWarningSent;
+    private boolean reconnectExpiryBatch;
 
     public PitchoutGame(UUID gameId, GameMap preparedMap) {
         super("Pitchout", gameId);
@@ -132,7 +138,7 @@ public class PitchoutGame extends Game {
 
         player.resetPlayer();
         if (getState() == GameState.OPEN) {
-            player.getPlayer().teleport(map.getWaitingLobbyLocation());
+            teleportPlayerSafely(player.getPlayer(), map.getWaitingLobbyLocation());
             return;
         }
 
@@ -152,9 +158,20 @@ public class PitchoutGame extends Game {
         player.getPlayer().getInventory().setItem(8, arrow);
         Location spawnLocation = initialSpawns.getOrDefault(
                 player.getPlayer().getUniqueId(), map.getRandomSpawnLocation());
-        player.getPlayer().teleport(spawnLocation);
+        teleportPlayerSafely(player.getPlayer(), spawnLocation);
         player.getPlayer().setFallDistance(0);
         player.setState(PlayerState.IN_GAME);
+    }
+
+    @Override
+    public boolean supportsSpectating() {
+        return true;
+    }
+
+    @Override
+    protected Location spectatorDestination(CookiePlayer cookiePlayer) {
+        return map == null || map.getWorld() == null
+                ? null : map.getWaitingLobbyLocation().clone().add(0.0, 8.0, 0.0);
     }
 
     @Override
@@ -178,6 +195,7 @@ public class PitchoutGame extends Game {
         updateGameInfo();
 
         if (getState() == GameState.RUNNING) {
+            expireReconnectReservations();
             runningSeconds++;
             int warningSeconds = Math.min(60, maximumRunningSeconds / 3);
             if (!timeoutWarningSent && runningSeconds >= maximumRunningSeconds - warningSeconds) {
@@ -267,9 +285,10 @@ public class PitchoutGame extends Game {
             gameState = "game.ended";
         }
 
-        for (CookiePlayer player : getPlayers()) {
+        for (CookiePlayer player : matchViewers()) {
             Player bukkitPlayer = player.getPlayer();
-            boolean isSpectator = bukkitPlayer.getGameMode() == GameMode.SPECTATOR;
+            boolean isSpectator = bukkitPlayer.getGameMode() == GameMode.SPECTATOR
+                    || isExternalSpectator(bukkitPlayer.getUniqueId());
             String localizedState = countdownSeconds == null
                     ? LocaleManager.getMessage(gameState, bukkitPlayer.locale())
                     : gameState.startsWith("pitchout.")
@@ -359,7 +378,7 @@ public class PitchoutGame extends Game {
     }
 
     private void showOutcomeTitles(CookiePlayer winner) {
-        for (CookiePlayer cookiePlayer : getPlayers()) {
+        for (CookiePlayer cookiePlayer : matchViewers()) {
             Player player = cookiePlayer.getPlayer();
             if (winner == null) {
                 sendGameTitle(player,
@@ -367,6 +386,12 @@ public class PitchoutGame extends Game {
                                 NamedTextColor.YELLOW, TextDecoration.BOLD),
                         Component.text(Pitchout.message(player, "pitchout.outcome.draw.subtitle"),
                                 NamedTextColor.GRAY));
+            } else if (isExternalSpectator(player.getUniqueId())) {
+                sendGameTitle(player,
+                        Component.text(LocaleManager.getMessage("game.ended", player.locale()),
+                                NamedTextColor.GOLD, TextDecoration.BOLD),
+                        Component.text(Pitchout.message(player, "pitchout.outcome.defeat.subtitle",
+                                winner.getPlayer().getName()), NamedTextColor.GRAY));
             } else if (player.getUniqueId().equals(winner.getPlayer().getUniqueId())) {
                 sendGameTitle(player,
                         Component.text(Pitchout.message(player, "pitchout.outcome.victory"),
@@ -381,6 +406,17 @@ public class PitchoutGame extends Game {
                                 winner.getPlayer().getName()), NamedTextColor.GRAY));
             }
         }
+    }
+
+    private List<CookiePlayer> matchViewers() {
+        Map<UUID, CookiePlayer> viewers = new LinkedHashMap<>();
+        for (CookiePlayer participant : getPlayers()) {
+            viewers.put(participant.getPlayer().getUniqueId(), participant);
+        }
+        for (CookiePlayer spectator : getSpectators()) {
+            viewers.putIfAbsent(spectator.getPlayer().getUniqueId(), spectator);
+        }
+        return List.copyOf(viewers.values());
     }
 
     private void tryPersistOutcomeAndRewards(CookiePlayer winner, boolean notifyPlayers) {
@@ -577,6 +613,23 @@ public class PitchoutGame extends Game {
             endSequenceTask.cancel();
             endSequenceTask = null;
         }
+        if (!ejectOwnedPlayersToLobby()) {
+            cleanupStarted = false;
+            Pitchout plugin = Pitchout.getInstance();
+            if (plugin != null) {
+                plugin.getLogger().warning(
+                        "Deferring Pitchout map cleanup until every player reaches the lobby: " + getGameId());
+            }
+            if (plugin != null && plugin.isEnabled()) {
+                try {
+                    endSequenceTask = Bukkit.getScheduler().runTaskLater(
+                            plugin, this::cleanupGameResources, 20L);
+                } catch (RuntimeException error) {
+                    plugin.getLogger().warning("Could not schedule Pitchout cleanup retry: " + error.getMessage());
+                }
+            }
+            return;
+        }
 
         if (MapManager.inGamePlayerListener != null) {
             MapManager.inGamePlayerListener.clearGameState(getGameId());
@@ -644,20 +697,90 @@ public class PitchoutGame extends Game {
 
     @Override
     public void removePlayer(CookiePlayer player) {
+        removePlayer(player, "left_game");
+    }
+
+    @Override
+    public synchronized void removePlayer(CookiePlayer player, String reason) {
+        if (player == null || player.getPlayer() == null) return;
+        UUID playerId = player.getPlayer().getUniqueId();
+        if (getSpectators().stream().anyMatch(viewer ->
+                viewer.getPlayer().getUniqueId().equals(playerId))) {
+            super.removePlayer(player, reason);
+            scoreboard.remove(player.getPlayer());
+            return;
+        }
         boolean wasInGame = getPlayers().contains(player);
-        super.removePlayer(player);
+        if (wasInGame && getState() == GameState.RUNNING && "disconnect".equalsIgnoreCase(reason)
+                && getPlayerLives(player) > 0) {
+            if (!disconnectedAt.containsKey(playerId)) {
+                disconnectedAt.put(playerId, System.currentTimeMillis());
+                reconnectSnapshots.put(playerId, PlayerActivitySnapshot.capture(player.getPlayer()));
+            }
+            scoreboard.remove(player.getPlayer());
+            return;
+        }
+        super.removePlayer(player, reason);
         if (!wasInGame) {
             return;
         }
         playerLives.remove(player);
-        initialSpawns.remove(player.getPlayer().getUniqueId());
+        initialSpawns.remove(playerId);
+        disconnectedAt.remove(playerId);
+        reconnectSnapshots.remove(playerId);
 
         scoreboard.remove(player.getPlayer());
-        if (getState() == GameState.RUNNING) {
+        if (getState() == GameState.RUNNING && !reconnectExpiryBatch) {
             checkForWinner();
         } else if (getState() == GameState.OPEN) {
             participantIds.remove(player.getPlayer().getUniqueId());
         }
+    }
+
+    @Override
+    public boolean hasReconnectReservation(UUID playerId) {
+        Long disconnected = disconnectedAt.get(playerId);
+        return getState() == GameState.RUNNING && disconnected != null
+                && System.currentTimeMillis() - disconnected <= RECONNECT_GRACE_MILLIS
+                && playerLives.entrySet().stream().anyMatch(entry ->
+                        entry.getKey().getPlayer().getUniqueId().equals(playerId) && entry.getValue() > 0);
+    }
+
+    @Override
+    public synchronized boolean reconnect(CookiePlayer cookiePlayer) {
+        UUID playerId = cookiePlayer.getPlayer().getUniqueId();
+        CookiePlayer previous = playerLives.keySet().stream()
+                .filter(player -> player.getPlayer().getUniqueId().equals(playerId)).findFirst().orElse(null);
+        PlayerActivitySnapshot snapshot = reconnectSnapshots.get(playerId);
+        if (previous == null || snapshot == null || !hasReconnectReservation(playerId)
+                || !snapshot.relocate(cookiePlayer.getPlayer(), initialSpawns.get(playerId))
+                || !restorePlayerAfterReconnect(cookiePlayer)) {
+            return false;
+        }
+        snapshot.applyState(cookiePlayer.getPlayer());
+        int lives = playerLives.remove(previous);
+        playerLives.put(cookiePlayer, lives);
+        disconnectedAt.remove(playerId);
+        reconnectSnapshots.remove(playerId);
+        cookiePlayer.setState(PlayerState.IN_GAME);
+        return true;
+    }
+
+    private void expireReconnectReservations() {
+        long now = System.currentTimeMillis();
+        List<UUID> expired = ReconnectExpiryPolicy.expired(disconnectedAt, now, RECONNECT_GRACE_MILLIS);
+        if (expired.isEmpty()) return;
+        reconnectExpiryBatch = true;
+        try {
+            for (UUID playerId : expired) {
+                CookiePlayer previous = playerLives.keySet().stream()
+                        .filter(player -> player.getPlayer().getUniqueId().equals(playerId)).findFirst().orElse(null);
+                if (previous != null) removePlayer(previous, "reconnect_expired");
+            }
+        } finally {
+            reconnectExpiryBatch = false;
+        }
+        if (getState() == GameState.RUNNING) checkForWinner();
     }
 
     public int getPlayerLives(CookiePlayer player) {
