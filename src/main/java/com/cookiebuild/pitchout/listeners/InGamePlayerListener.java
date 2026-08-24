@@ -237,7 +237,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
                     .findFirst()
                     .orElse(null);
             if (trackedPlayer != null) {
-                pitchoutGame.removePlayer(trackedPlayer);
+                pitchoutGame.removePlayer(trackedPlayer, "disconnect");
                 break;
             }
         }
