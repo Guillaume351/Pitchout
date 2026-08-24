@@ -15,6 +15,11 @@ class PitchoutContinuityContractTest {
         String removal = source.substring(source.indexOf("public synchronized void removePlayer"));
         assertTrue(source.contains("implements ReconnectableGame"));
         assertTrue(source.contains("PlayerActivitySnapshot.capture"));
+        assertTrue(source.contains("protected Location spectatorDestination"));
+        assertTrue(source.contains("reconnectExpiryBatch = true"));
+        String expiry = source.substring(source.indexOf("private void expireReconnectReservations()"),
+                source.indexOf("public int getPlayerLives"));
+        assertTrue(expiry.indexOf("reconnectExpiryBatch = false") < expiry.indexOf("checkForWinner();"));
         assertTrue(source.indexOf("snapshot.relocate") < source.indexOf("restorePlayerAfterReconnect(cookiePlayer)"));
         assertTrue(source.indexOf("restorePlayerAfterReconnect(cookiePlayer)") < source.indexOf("snapshot.applyState"));
         assertTrue(removal.indexOf("getSpectators().stream()")

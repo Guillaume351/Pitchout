@@ -73,6 +73,7 @@ public class PitchoutGame extends Game implements ReconnectableGame {
     private int runningSeconds;
     private final int maximumRunningSeconds;
     private boolean timeoutWarningSent;
+    private boolean reconnectExpiryBatch;
 
     public PitchoutGame(UUID gameId, GameMap preparedMap) {
         super("Pitchout", gameId);
@@ -168,14 +169,9 @@ public class PitchoutGame extends Game implements ReconnectableGame {
     }
 
     @Override
-    protected boolean teleportToSpectator(CookiePlayer cookiePlayer) {
-        if (map == null || map.getWorld() == null) return false;
-        Player player = cookiePlayer.getPlayer();
-        Location destination = map.getWaitingLobbyLocation().clone().add(0.0, 8.0, 0.0);
-        if (!destination.getChunk().load() || !player.teleport(destination)) return false;
-        cookiePlayer.resetPlayer();
-        player.setGameMode(GameMode.SPECTATOR);
-        return true;
+    protected Location spectatorDestination(CookiePlayer cookiePlayer) {
+        return map == null || map.getWorld() == null
+                ? null : map.getWaitingLobbyLocation().clone().add(0.0, 8.0, 0.0);
     }
 
     @Override
@@ -700,7 +696,7 @@ public class PitchoutGame extends Game implements ReconnectableGame {
         reconnectSnapshots.remove(playerId);
 
         scoreboard.remove(player.getPlayer());
-        if (getState() == GameState.RUNNING) {
+        if (getState() == GameState.RUNNING && !reconnectExpiryBatch) {
             checkForWinner();
         } else if (getState() == GameState.OPEN) {
             participantIds.remove(player.getPlayer().getUniqueId());
@@ -738,13 +734,19 @@ public class PitchoutGame extends Game implements ReconnectableGame {
 
     private void expireReconnectReservations() {
         long now = System.currentTimeMillis();
-        for (UUID playerId : List.copyOf(disconnectedAt.keySet())) {
-            Long disconnected = disconnectedAt.get(playerId);
-            if (disconnected == null || now - disconnected <= RECONNECT_GRACE_MILLIS) continue;
-            CookiePlayer previous = playerLives.keySet().stream()
-                    .filter(player -> player.getPlayer().getUniqueId().equals(playerId)).findFirst().orElse(null);
-            if (previous != null) removePlayer(previous, "reconnect_expired");
+        List<UUID> expired = ReconnectExpiryPolicy.expired(disconnectedAt, now, RECONNECT_GRACE_MILLIS);
+        if (expired.isEmpty()) return;
+        reconnectExpiryBatch = true;
+        try {
+            for (UUID playerId : expired) {
+                CookiePlayer previous = playerLives.keySet().stream()
+                        .filter(player -> player.getPlayer().getUniqueId().equals(playerId)).findFirst().orElse(null);
+                if (previous != null) removePlayer(previous, "reconnect_expired");
+            }
+        } finally {
+            reconnectExpiryBatch = false;
         }
+        if (getState() == GameState.RUNNING) checkForWinner();
     }
 
     public int getPlayerLives(CookiePlayer player) {
