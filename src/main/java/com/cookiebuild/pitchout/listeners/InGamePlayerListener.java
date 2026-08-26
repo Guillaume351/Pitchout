@@ -20,6 +20,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import com.cookiebuild.pitchout.ui.PitchoutBedrockForms;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.projectiles.ProjectileSource;
@@ -112,6 +113,18 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
+        if (event instanceof PlayerTeleportEvent) {
+            return;
+        }
+        handlePlayerMovement(event);
+    }
+
+    @EventHandler
+    public void onPlayerTeleport(PlayerTeleportEvent event) {
+        handlePlayerMovement(event);
+    }
+
+    private void handlePlayerMovement(PlayerMoveEvent event) {
         if (event.getTo() == null || !protectedWorlds.contains(event.getPlayer().getWorld().getName())) {
             return;
         }
@@ -130,7 +143,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 game.getTemplate().getWaitingAreaMinY(),
                 game.getTemplate().getKillY());
         switch (action) {
-            case RETURN_TO_WAITING -> player.teleport(game.getTemplate().getSpawnLocation(player.getWorld()));
+            case RETURN_TO_WAITING -> event.setTo(game.getTemplate().getSpawnLocation(player.getWorld()));
             case HANDLE_MATCH_FALL -> handlePlayerFall(player);
             case NONE -> { }
         }
