@@ -112,25 +112,27 @@ public class InGamePlayerListener extends BaseEventBlocker {
 
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
-        if (!protectedWorlds.contains(event.getPlayer().getWorld().getName())) {
+        if (event.getTo() == null || !protectedWorlds.contains(event.getPlayer().getWorld().getName())) {
             return;
         }
 
         Player player = event.getPlayer();
         PitchoutGame game = getPlayersGame(player);
-        if (game == null || !isPlayerInGame(player)) {
-            return;
-        }
-        if (!isGameRunning(player)) {
-            if (player.getLocation().getY() < game.getTemplate().getWaitingAreaMinY()) {
-                player.teleport(game.getTemplate().getSpawnLocation(player.getWorld()));
-            }
+        if (game == null) {
             return;
         }
 
-        if (player.getGameMode() != GameMode.SPECTATOR
-                && player.getLocation().getY() < game.getTemplate().getKillY()) {
-            handlePlayerFall(player);
+        PitchoutMovementPolicy.Action action = PitchoutMovementPolicy.decide(
+                game.hasStarted(),
+                isPlayerInGame(player),
+                player.getGameMode() == GameMode.SPECTATOR,
+                event.getTo().getY(),
+                game.getTemplate().getWaitingAreaMinY(),
+                game.getTemplate().getKillY());
+        switch (action) {
+            case RETURN_TO_WAITING -> player.teleport(game.getTemplate().getSpawnLocation(player.getWorld()));
+            case HANDLE_MATCH_FALL -> handlePlayerFall(player);
+            case NONE -> { }
         }
     }
 
