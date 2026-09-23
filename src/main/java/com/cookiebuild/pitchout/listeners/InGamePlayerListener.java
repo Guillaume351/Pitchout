@@ -16,7 +16,6 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
-import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -139,6 +138,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 game.hasStarted(),
                 isPlayerInGame(player),
                 player.getGameMode() == GameMode.SPECTATOR,
+                event.getTo().getWorld() != player.getWorld(),
                 event.getTo().getY(),
                 game.getTemplate().getWaitingAreaMinY(),
                 game.getTemplate().getKillY());
@@ -256,16 +256,6 @@ public class InGamePlayerListener extends BaseEventBlocker {
                 break;
             }
         }
-    }
-
-    @EventHandler
-    public void onQuickPlayInteract(PlayerInteractEvent event) {
-        if ((event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK)
-                || !Pitchout.isReplayHook(event.getItem())) {
-            return;
-        }
-        event.setCancelled(true);
-        if (!Pitchout.openReplayForm(event.getPlayer())) Pitchout.joinOpenGame(event.getPlayer());
     }
 
     public void clearGameState(UUID gameId) {

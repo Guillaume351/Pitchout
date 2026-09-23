@@ -7,14 +7,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletionException;
 
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import com.cookiebuild.cookiedough.game.Game;
@@ -36,8 +31,6 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
-import com.cookiebuild.cookiedough.ui.MenuLore;
-import net.kyori.adventure.text.format.TextDecoration;
 
 public final class Pitchout extends JavaPlugin {
     private static final Map<String, String> ENGLISH_FALLBACKS = Map.ofEntries(
@@ -50,9 +43,6 @@ public final class Pitchout extends JavaPlugin {
             Map.entry("pitchout.form.close", "Close"),
             Map.entry("pitchout.vote.option_hover", "Vote for {0}"),
             Map.entry("pitchout.vote.winner", "Next arena selected: {0}"),
-            Map.entry("pitchout.replay.ready", "Ready for another round?"),
-            Map.entry("pitchout.replay.action", "Play Pitchout again"),
-            Map.entry("pitchout.replay.hover", "Join the next Pitchout match"),
             Map.entry("pitchout.progress", "Level {0} • {1}/{2} XP"),
             Map.entry("pitchout.contribution", "Your match: {0} eliminations • {1} knockbacks • best combo {2}"),
             Map.entry("pitchout.feedback.action", "Share feedback"),
@@ -60,7 +50,6 @@ public final class Pitchout extends JavaPlugin {
             Map.entry("pitchout.join.preparing", "Pitchout is preparing a new arena. Try again in a moment."),
             Map.entry("pitchout.join.return_lobby", "Return to the lobby before joining another game."));
     private static Pitchout instance;
-    private NamespacedKey replayHookKey;
     private StandbyArenaService<MapManager.PreparedMap, PitchoutGame> arenas;
     private boolean shuttingDown;
 
@@ -126,7 +115,6 @@ public final class Pitchout extends JavaPlugin {
     @Override
     public void onEnable() {
         instance = this;
-        replayHookKey = new NamespacedKey(this, "quick_play");
 
         // Initialize maps
         this.getLogger().info("Pitchout plugin enabled!");
@@ -182,43 +170,6 @@ public final class Pitchout extends JavaPlugin {
         return game.addPlayerToAvailableTeam(cookiePlayer);
     }
 
-    public static void giveReplayHook(Player player) {
-        if (instance == null || instance.replayHookKey == null || !player.isOnline()) {
-            return;
-        }
-
-        ItemStack replayItem = new ItemStack(Material.COMPASS);
-        ItemMeta meta = replayItem.getItemMeta();
-        meta.displayName(Component.text(message(player, "pitchout.replay.action"),
-                NamedTextColor.GOLD, TextDecoration.BOLD));
-        meta.lore(List.of(MenuLore.detail(message(player, "pitchout.replay.hover"))));
-        meta.getPersistentDataContainer().set(instance.replayHookKey, PersistentDataType.BYTE, (byte) 1);
-        replayItem.setItemMeta(meta);
-        player.getInventory().setItem(4, replayItem);
-
-        Component quickPlay = Component.text("[" + message(player, "pitchout.replay.action") + "]",
-                NamedTextColor.GREEN, TextDecoration.BOLD)
-                .clickEvent(ClickEvent.runCommand("/pitchout play"))
-                .hoverEvent(HoverEvent.showText(Component.text(message(player, "pitchout.replay.hover"))));
-        Component feedback = Component.text("[" + message(player, "pitchout.feedback.action") + "]",
-                NamedTextColor.AQUA)
-                .clickEvent(ClickEvent.openUrl("https://www.cookie-build.com"))
-                .hoverEvent(HoverEvent.showText(Component.text(message(player, "pitchout.feedback.hover"))));
-        player.sendMessage(Component.text(message(player, "pitchout.replay.ready") + " ", NamedTextColor.GRAY)
-                .append(quickPlay)
-                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
-                .append(feedback));
-    }
-
-    public static boolean isReplayHook(ItemStack item) {
-        return instance != null
-                && instance.replayHookKey != null
-                && item != null
-                && item.hasItemMeta()
-                && item.getItemMeta().getPersistentDataContainer().has(
-                        instance.replayHookKey, PersistentDataType.BYTE);
-    }
-
     public static void sendMapVotePrompt(Player player) {
         List<String> maps = MapManager.getEligibleNextMapNames();
         if (maps.isEmpty()) {
@@ -270,10 +221,6 @@ public final class Pitchout extends JavaPlugin {
         player.sendMessage(Component.text(
                 message(player, "pitchout.vote.recorded",
                         MapManager.getDisplayName(selectedMap, player.locale())), NamedTextColor.GREEN));
-    }
-
-    public static boolean openReplayForm(Player player) {
-        return PitchoutBedrockForms.openReplay(player, () -> joinOpenGame(player));
     }
 
     public static String message(Player player, String key, Object... arguments) {

@@ -38,6 +38,7 @@ import com.cookiebuild.cookiedough.lobby.LobbyManager;
 import com.cookiebuild.cookiedough.lobby.LobbyScoreboard;
 import com.cookiebuild.cookiedough.model.Match;
 import com.cookiebuild.cookiedough.player.CookiePlayer;
+import com.cookiebuild.cookiedough.player.PlayerManager;
 import com.cookiebuild.cookiedough.player.PlayerState;
 import com.cookiebuild.cookiedough.service.MatchService;
 import com.cookiebuild.cookiedough.service.MinigameProgressionService;
@@ -53,6 +54,7 @@ import net.kyori.adventure.title.Title;
 
 public class PitchoutGame extends Game implements ReconnectableGame {
     private static final long RECONNECT_GRACE_MILLIS = Duration.ofSeconds(60).toMillis();
+    private static final int MAX_MAP_UNLOAD_RETRIES = 60;
     private static final int MAX_LIVES = 5;
     private GameMap map;
     private final HashMap<CookiePlayer, Integer> playerLives = new HashMap<>();
@@ -63,6 +65,7 @@ public class PitchoutGame extends Game implements ReconnectableGame {
     private final PitchoutStats stats = new PitchoutStats();
     private BukkitTask endSequenceTask;
     private boolean cleanupStarted;
+    private int mapUnloadRetries;
     private boolean outcomePersisted;
     private boolean timedOut;
 
@@ -620,14 +623,7 @@ public class PitchoutGame extends Game implements ReconnectableGame {
                 plugin.getLogger().warning(
                         "Deferring Pitchout map cleanup until every player reaches the lobby: " + getGameId());
             }
-            if (plugin != null && plugin.isEnabled()) {
-                try {
-                    endSequenceTask = Bukkit.getScheduler().runTaskLater(
-                            plugin, this::cleanupGameResources, 20L);
-                } catch (RuntimeException error) {
-                    plugin.getLogger().warning("Could not schedule Pitchout cleanup retry: " + error.getMessage());
-                }
-            }
+            scheduleCleanupRetry(plugin);
             return;
         }
 
@@ -642,18 +638,40 @@ public class PitchoutGame extends Game implements ReconnectableGame {
                     "Failed while draining Pitchout players; map cleanup will continue: " + exception.getMessage());
         }
 
+        boolean unloaded = false;
         try {
-            if (map != null && !MapManager.unloadMap(getGameId().toString())) {
-                Pitchout.getInstance().getLogger().warning(
-                        "Pitchout map cleanup remains pending for game " + getGameId());
-            }
+            unloaded = map == null || MapManager.unloadMap(getGameId().toString());
         } catch (RuntimeException exception) {
             Pitchout.getInstance().getLogger().severe(
                     "Pitchout map cleanup failed for " + getGameId() + ": " + exception.getMessage());
-        } finally {
-            scoreboard.clear();
-            stats.clear();
-            GameManager.removeGame(this);
+        }
+        if (!unloaded) {
+            cleanupStarted = false;
+            Pitchout plugin = Pitchout.getInstance();
+            if (++mapUnloadRetries > MAX_MAP_UNLOAD_RETRIES) {
+                if (plugin != null) plugin.getLogger().severe(
+                        "Pitchout map cleanup still failed after " + MAX_MAP_UNLOAD_RETRIES
+                                + " retries; game and map remain registered for manual recovery: " + getGameId());
+                return;
+            }
+            if (plugin != null && (mapUnloadRetries == 1 || mapUnloadRetries % 10 == 0)) {
+                plugin.getLogger().warning("Pitchout map cleanup remains pending for game "
+                        + getGameId() + " (retry " + mapUnloadRetries + "/" + MAX_MAP_UNLOAD_RETRIES + ")");
+            }
+            scheduleCleanupRetry(plugin);
+            return;
+        }
+        scoreboard.clear();
+        stats.clear();
+        GameManager.removeGame(this);
+    }
+
+    private void scheduleCleanupRetry(Pitchout plugin) {
+        if (plugin == null || !plugin.isEnabled()) return;
+        try {
+            endSequenceTask = Bukkit.getScheduler().runTaskLater(plugin, this::cleanupGameResources, 20L);
+        } catch (RuntimeException error) {
+            plugin.getLogger().warning("Could not schedule Pitchout cleanup retry: " + error.getMessage());
         }
     }
 
@@ -679,9 +697,6 @@ public class PitchoutGame extends Game implements ReconnectableGame {
                         cookiePlayer.setState(PlayerState.LOBBY);
                         player.teleport(fallbackWorld.getSpawnLocation());
                     }
-                    if (cookiePlayer.getState() == PlayerState.LOBBY) {
-                        Pitchout.giveReplayHook(player);
-                    }
                 }
             } catch (RuntimeException exception) {
                 Pitchout.getInstance().getLogger().warning(
@@ -691,6 +706,22 @@ public class PitchoutGame extends Game implements ReconnectableGame {
                 if (getPlayers().contains(cookiePlayer)) {
                     removePlayer(cookiePlayer);
                 }
+            }
+        }
+        if (map == null) return;
+        for (Player occupant : new ArrayList<>(map.getWorld().getPlayers())) {
+            CookiePlayer tracked = PlayerManager.getPlayer(occupant);
+            if (tracked == null) {
+                Pitchout.getInstance().getLogger().warning(
+                        "Waiting for player data before unloading Pitchout world: " + occupant.getName());
+                continue;
+            }
+            try {
+                LobbyManager.teleportPlayerToLobby(tracked);
+            } catch (RuntimeException exception) {
+                Pitchout.getInstance().getLogger().warning(
+                        "Could not move Pitchout world occupant " + occupant.getName()
+                                + " to the lobby: " + exception.getMessage());
             }
         }
     }

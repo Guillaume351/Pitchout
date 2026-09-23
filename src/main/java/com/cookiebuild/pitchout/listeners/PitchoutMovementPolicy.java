@@ -12,7 +12,9 @@ final class PitchoutMovementPolicy {
     }
 
     static Action decide(boolean gameRunning, boolean playerInGame, boolean spectator,
+            boolean leavingArena,
             double destinationY, double waitingAreaMinY, double killY) {
+        if (leavingArena) return Action.NONE;
         if (!gameRunning) {
             return destinationY < waitingAreaMinY ? Action.RETURN_TO_WAITING : Action.NONE;
         }
