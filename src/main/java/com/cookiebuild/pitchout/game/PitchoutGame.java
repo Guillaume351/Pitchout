@@ -298,7 +298,11 @@ public class PitchoutGame extends Game implements ReconnectableGame {
                             ? Pitchout.message(bukkitPlayer, gameState, formatSeconds(countdownSeconds))
                             : LocaleManager.getMessage(gameState, bukkitPlayer.locale(), countdownSeconds);
 
-            bukkitPlayer.sendActionBar(Component.text(localizedState, NamedTextColor.YELLOW));
+            // The results sequence owns the action bar until the return to the
+            // lobby; do not overwrite its countdown with a generic ended state.
+            if (getState() != GameState.FINISHED) {
+                bukkitPlayer.sendActionBar(Component.text(localizedState, NamedTextColor.YELLOW));
+            }
 
             List<String> lines = new ArrayList<>();
             lines.add("§6" + Pitchout.message(bukkitPlayer, "pitchout.scoreboard.state"));
@@ -541,26 +545,25 @@ public class PitchoutGame extends Game implements ReconnectableGame {
             @Override
             public void run() {
                 if (timeLeft > 0) {
-                    for (UUID playerId : participantIds) {
-                        Player p = Bukkit.getPlayer(playerId);
-                        if (p != null && p.isOnline()) {
-                            Title countdownTitle = Title.title(
-                                    Component.empty(),
-                                    Component.text(LocaleManager.getMessage("game.teleport_countdown", p.locale(),
-                                            timeLeft)),
-                                    Title.Times.times(
-                                            Duration.ofMillis(250),
-                                            Duration.ofMillis(500),
-                                            Duration.ofMillis(250)));
-                            p.showTitle(countdownTitle);
-                        }
-                    }
+                    showReturnCountdown(timeLeft);
                     timeLeft--;
                 } else {
                     cleanupGameResources();
                 }
             }
         }.runTaskTimer(Pitchout.getInstance(), 0L, 20L); // Run every second
+    }
+
+    void showReturnCountdown(int timeLeft) {
+        // Preserve the outcome title, include external spectators, and stop
+        // notifying anyone who has already left this match.
+        for (CookiePlayer viewer : matchViewers()) {
+            Player player = viewer.getPlayer();
+            if (player.isOnline()) {
+                player.sendActionBar(Component.text(LocaleManager.getMessage(
+                        "game.teleport_countdown", player.locale(), timeLeft), NamedTextColor.YELLOW));
+            }
+        }
     }
 
     private record RewardResult(

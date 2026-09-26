@@ -29,6 +29,7 @@ dependencies {
     testImplementation 'io.papermc.paper:paper-api:26.2.build.116-stable'
     testImplementation 'org.geysermc.cumulus:cumulus:1.1.2'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.12.2'
+    testImplementation 'org.mockito:mockito-core:5.20.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.12.2'
 }
 
