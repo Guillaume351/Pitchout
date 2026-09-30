@@ -25,23 +25,21 @@ import com.cookiebuild.cookiedough.utils.LocaleManager;
 import com.cookiebuild.pitchout.game.PitchoutGame;
 import com.cookiebuild.pitchout.listeners.InGamePlayerListener;
 import com.cookiebuild.pitchout.map.MapManager;
+import com.cookiebuild.pitchout.ui.MapVoteItem;
 import com.cookiebuild.pitchout.ui.PitchoutBedrockForms;
+import com.cookiebuild.pitchout.ui.PitchoutJavaVoteMenu;
 
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.event.ClickEvent;
-import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
 
 public final class Pitchout extends JavaPlugin {
     private static final Map<String, String> ENGLISH_FALLBACKS = Map.ofEntries(
-            Map.entry("pitchout.vote.prompt", "Vote for the next arena: {0}"),
             Map.entry("pitchout.vote.recorded", "Your vote for {0} will help choose the next Pitchout arena."),
             Map.entry("pitchout.vote.invalid_map", "Unknown Pitchout map. Available maps: {0}"),
             Map.entry("pitchout.vote.unavailable", "Map voting is only available while waiting for or playing Pitchout."),
             Map.entry("pitchout.vote.form.title", "Next Pitchout arena"),
             Map.entry("pitchout.vote.form.content", "Choose one arena. Your latest vote replaces the previous one."),
             Map.entry("pitchout.form.close", "Close"),
-            Map.entry("pitchout.vote.option_hover", "Vote for {0}"),
             Map.entry("pitchout.vote.winner", "Next arena selected: {0}"),
             Map.entry("pitchout.progress", "Level {0} • {1}/{2} XP"),
             Map.entry("pitchout.contribution", "Your match: {0} eliminations • {1} knockbacks • best combo {2}"),
@@ -170,25 +168,24 @@ public final class Pitchout extends JavaPlugin {
         return game.addPlayerToAvailableTeam(cookiePlayer);
     }
 
+    /** Gives the waiting-area vote item and a plain-text hint; never opens a form unprompted. */
+    public static void offerMapVote(Player player) {
+        if (MapManager.getEligibleNextMapNames().isEmpty()) {
+            return;
+        }
+        MapVoteItem.give(player);
+        player.sendMessage(Component.text(
+                message(player, "pitchout.vote.hint", MapVoteItem.name(player)), NamedTextColor.YELLOW));
+    }
+
+    /** Opens the vote on request (item use or /pitchout vote): Bedrock form, otherwise a Java chest menu. */
     public static void sendMapVotePrompt(Player player) {
         List<String> maps = MapManager.getEligibleNextMapNames();
         if (maps.isEmpty()) {
             return;
         }
         if (PitchoutBedrockForms.openMapVote(player, maps, map -> voteForNextMap(player, map))) return;
-        Component prompt = Component.text(
-                message(player, "pitchout.vote.prompt", maps.stream()
-                        .map(map -> MapManager.getDisplayName(map, player.locale()))
-                        .collect(java.util.stream.Collectors.joining(", "))) + " ",
-                NamedTextColor.YELLOW);
-        for (String mapName : maps) {
-            String displayName = MapManager.getDisplayName(mapName, player.locale());
-            prompt = prompt.append(Component.text("[" + displayName + "] ", NamedTextColor.AQUA)
-                    .clickEvent(ClickEvent.runCommand("/pitchout vote " + mapName))
-                    .hoverEvent(HoverEvent.showText(Component.text(
-                            message(player, "pitchout.vote.option_hover", displayName)))));
-        }
-        player.sendMessage(prompt);
+        PitchoutJavaVoteMenu.open(player, maps, map -> voteForNextMap(player, map));
     }
 
     public static void announceMapVoteWinner(String mapName) {
@@ -224,6 +221,10 @@ public final class Pitchout extends JavaPlugin {
     }
 
     public static String message(Player player, String key, Object... arguments) {
+        String pitchoutOwned = PitchoutMessages.find(player.locale(), key, arguments);
+        if (pitchoutOwned != null) {
+            return pitchoutOwned;
+        }
         String localized = LocaleManager.getMessage(key, player.locale(), arguments);
         if (!localized.equals(key)) {
             return localized;

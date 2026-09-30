@@ -111,7 +111,10 @@ public class PitchoutGame extends Game implements ReconnectableGame {
             participantIds.add(playerId);
             playerLives.put(player, MAX_LIVES);
             teleportToGame(player);
-            Pitchout.sendMapVotePrompt(player.getPlayer());
+            if (getState() == GameState.OPEN) {
+                // Hotbar item + plain-text hint; the vote form only opens when the player asks for it.
+                Pitchout.offerMapVote(player.getPlayer());
+            }
             return true;
         } catch (RuntimeException exception) {
             participantIds.remove(playerId);
@@ -226,10 +229,25 @@ public class PitchoutGame extends Game implements ReconnectableGame {
         }
 
         prepareInitialSpawns();
+        // Game.startGame() re-runs teleportToGame, whose resetPlayer() clears the waiting-area vote item.
         super.startGame();
         runningSeconds = 0;
         timeoutWarningSent = false;
+        showRulesBriefing();
         startMatchPersistence();
+    }
+
+    private void showRulesBriefing() {
+        Title.Times times = Title.Times.times(Duration.ofMillis(500), Duration.ofSeconds(4), Duration.ofMillis(500));
+        for (CookiePlayer participant : getPlayers()) {
+            Player player = participant.getPlayer();
+            PitchoutBriefing briefing = PitchoutBriefing.forLocale(player.locale(), MAX_LIVES);
+            player.showTitle(Title.title(
+                    Component.text(briefing.title(), NamedTextColor.GOLD, TextDecoration.BOLD),
+                    Component.text(briefing.subtitle(), NamedTextColor.YELLOW),
+                    times));
+            player.sendMessage(Component.text(briefing.chat(), NamedTextColor.AQUA));
+        }
     }
 
     private void startMatchPersistence() {

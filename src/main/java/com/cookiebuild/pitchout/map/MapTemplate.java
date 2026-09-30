@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 public class MapTemplate {
+    static final int KILL_DEPTH_BELOW_SPAWN = 4;
     private final String name;
     private final String displayName;
     private final List<Double> waitingSpawn;
@@ -54,8 +55,16 @@ public class MapTemplate {
     }
 
     public int getKillY() {
-        // killY is the Y coordinates of randomSpawns minus 2 blocks
-        return (int) (spawnCoordinates.getFirst().get(1) - 2);
+        return killY(spawnCoordinates.getFirst().get(1));
+    }
+
+    /**
+     * A fall is counted once the feet drop KILL_DEPTH_BELOW_SPAWN blocks under the configured spawn Y.
+     * Four blocks leaves a real margin on every shipped arena (Frostbite's carpet floor sits two blocks
+     * under its spawn Y) while staying above every lower surface a player could land on.
+     */
+    static int killY(double spawnY) {
+        return (int) (spawnY - KILL_DEPTH_BELOW_SPAWN);
     }
 
     public int getWaitingAreaMinY() {

@@ -1,6 +1,8 @@
 package com.cookiebuild.pitchout.listeners;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 import org.bukkit.Bukkit;
@@ -12,15 +14,23 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.entity.ProjectileLaunchEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import com.cookiebuild.pitchout.ui.MapVoteItem;
 import com.cookiebuild.pitchout.ui.PitchoutBedrockForms;
+import com.cookiebuild.pitchout.ui.PitchoutJavaVoteMenu;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.projectiles.ProjectileSource;
 
@@ -41,6 +51,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
             new CombatAttributionTracker(LAST_HIT_DURATION_MILLIS, System::currentTimeMillis);
     private final NamespacedKey projectileOwnerKey;
     private final NamespacedKey projectileGameKey;
+    private final Map<UUID, Long> voteItemOpenedAt = new HashMap<>();
 
     public InGamePlayerListener() {
         protectedWorlds = new ArrayList<>();
@@ -211,6 +222,66 @@ public class InGamePlayerListener extends BaseEventBlocker {
         return isPlayerInGame(event.getPlayer()) && isGameRunning(event.getPlayer());
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onVoteItemUse(PlayerInteractEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND || !MapVoteItem.isVoteItem(event.getItem())) {
+            return;
+        }
+        event.setCancelled(true);
+        if (!MapVoteItem.opensVote(event.getAction())) {
+            return;
+        }
+        Player player = event.getPlayer();
+        long now = System.currentTimeMillis();
+        if (!MapVoteItem.canOpen(voteItemOpenedAt.get(player.getUniqueId()), now)) {
+            return;
+        }
+        voteItemOpenedAt.put(player.getUniqueId(), now);
+        Pitchout.sendMapVotePrompt(player);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onVoteInventoryClick(InventoryClickEvent event) {
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        if (event.getView().getTopInventory().getHolder(false) instanceof PitchoutJavaVoteMenu menu) {
+            event.setCancelled(true);
+            if (event.getClickedInventory() == event.getView().getTopInventory()) {
+                menu.click(player, event.getRawSlot());
+            }
+            return;
+        }
+        boolean hotbarVoteItem = event.getHotbarButton() >= 0
+                && MapVoteItem.isVoteItem(player.getInventory().getItem(event.getHotbarButton()));
+        if (MapVoteItem.shouldCancelInventoryClick(MapVoteItem.isVoteItem(event.getCurrentItem()),
+                MapVoteItem.isVoteItem(event.getCursor()), hotbarVoteItem)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onVoteInventoryDrag(InventoryDragEvent event) {
+        if (event.getView().getTopInventory().getHolder(false) instanceof PitchoutJavaVoteMenu
+                || MapVoteItem.isVoteItem(event.getOldCursor())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onVoteItemDrop(PlayerDropItemEvent event) {
+        if (MapVoteItem.isVoteItem(event.getItemDrop().getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onVoteItemSwap(PlayerSwapHandItemsEvent event) {
+        if (MapVoteItem.isVoteItem(event.getMainHandItem()) || MapVoteItem.isVoteItem(event.getOffHandItem())) {
+            event.setCancelled(true);
+        }
+    }
+
     @Override
     protected boolean shouldAllowProjectileLaunch(ProjectileLaunchEvent event) {
         Projectile projectile = event.getEntity();
@@ -240,6 +311,7 @@ public class InGamePlayerListener extends BaseEventBlocker {
     public void onPlayerQuit(PlayerQuitEvent event) {
         PitchoutBedrockForms.invalidate(event.getPlayer());
         Player player = event.getPlayer();
+        voteItemOpenedAt.remove(player.getUniqueId());
         combatAttribution.removePlayer(player.getUniqueId());
         // CookieDough's quit listener may already have removed the PlayerManager entry.
         // Resolve from each game's own roster so spectators are never retained.
